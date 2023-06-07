@@ -7,20 +7,13 @@ rm(list = ls())
 suppressPackageStartupMessages(library(ggplot2)); library(malariasimulation); library(malariaEquilibrium)
 library(reshape2); library(tidyverse); library(readxl); library(rstan); library(pracma)
 library(foresite); library(doParallel); library(foreach);
-library(cowplot); library(pammtools);
+library(patchwork); library(pammtools); library(ggpattern);
 
 source(file = "functions.R"); source(file = "retention_fit_top_up.R")
 
 ### functions
-# can drop the coverage by each time-frame
-x <- decline_ds(seq(0, 100), 0.5, 0.01)
-
-for(i in 2:length(x)){
-  print(decline_ds(1, dn0 = x[i-1], gamma_n = 0.01))
-}
 
 ## Read in seasonality data
-sites_csv <- read.csv("parameters/site_parameters.csv",header=TRUE)
 # getting the site files for Benin and Tanzania
 
 B_site <- foresite::BEN
@@ -58,98 +51,102 @@ bite_params_df <- bite_params %>% group_by(Country_clean, species) %>% summarise
 ################################################
 
 # simulating until 2025
-# include a warm up period of ~40 years
+# include a warm up period of ~30 years
 sim_length <- 50 * 365
 
-start_date <- as.Date("01/01/1990", format = "%d/%m/%Y")
+start_date <- as.Date("01/01/1980", format = "%d/%m/%Y")
 
 # Benin times
 # March 20th 2020 is the assumed intervention time - when nets are rolled out
 # October to November 2019 - baseline time
-intervention_date_B <- as.Date("20/03/2020", format = "%d/%m/%Y")
-baseline_start_date_B <- as.Date("01/10/2019", format = "%d/%m/%Y")
+mass_dist_dates_T <- c(as.Date("01/01/2015", format = "%d/%m/%Y"))
+mass_dist_times_T <- as.vector(difftime(mass_dist_dates_T, start_date))
+
+mass_dist_dates_B <- c(as.Date("01/01/2017", format = "%d/%m/%Y"))
+mass_dist_times_B <- as.vector(difftime(mass_dist_dates_B, start_date))
+  
+intervention_date_B <- as.Date("20/03/2020", format = "%d/%m/%Y") # between March 19 and 22, 2020,LLINs were distributed
+baseline_start_date_B <- as.Date("01/11/2019", format = "%d/%m/%Y") # baseline cross sectional survey was in October and November 2019 - calculated the mean prevalence on the baseline +/- 15 days
 
 int_time_B <- difftime(intervention_date_B, start_date)[[1]]
 baseline_time_B <- difftime(baseline_start_date_B, start_date)[[1]]
 
 # Tanzania times
-#
-intervention_date_T <- as.Date("01/01/2020", format = "%d/%m/%Y")
-baseline_start_date_T <- as.Date("01/10/2018", format = "%d/%m/%Y")
+
+intervention_date_T <- as.Date("27/01/2019", format = "%d/%m/%Y") # LLINs were distributed among households between Jan 26 and Jan 28, 2019.
+baseline_start_date_T <- as.Date("15/10/2018", format = "%d/%m/%Y") # we did cross-sectional surveys to collect data on household factors and malaria infection prevalence at baseline (October 2018) 
 
 int_time_T <- difftime(intervention_date_T, start_date)[[1]]
 baseline_time_T <- difftime(baseline_start_date_T, start_date)[[1]]
 
-df_B <- rbind(subset(df, Country == "Benin" & Time_months == 0) %>% mutate(date = baseline_start_date_B),
-              subset(df, Country == "Benin" & Time_months != 0) %>% mutate(date = as.Date(Time_months*30 + intervention_date_B)))
+df$Time_months <- as.numeric(df$Time_months)
 
-df_T <- rbind(subset(df, Country == "Tanzania" & Time_months == 0) %>% mutate(date = baseline_start_date_T),
-              subset(df, Country == "Tanzania" & Time_months != 0) %>% mutate(date = as.Date(Time_months*30 + intervention_date_T)))
+df <- rbind(subset(df, Country == "Tanzania") %>% rowwise() %>% mutate(date = if(is.na(Time_months) == 1){baseline_start_date_T}else{intervention_date_T + months(Time_months)}),
+            subset(df, Country == "Benin") %>% rowwise() %>% mutate(date = if(is.na(Time_months) == 1){baseline_start_date_B}else{intervention_date_B + months(Time_months)})
+            )
+                                                  
+df_B <- subset(df, Country == "Benin")
+
+df_T <- subset(df, Country == "Tanzania")
 
 # changing the nets each day
+tu_diff_time_in <- 30
+
 top_up_IG2_B <- get_top_up(net = "IG2",
                            df = df,
                            country = "Benin",
-                           tu_diff_time = 1,
+                           tu_diff_time = tu_diff_time_in,
                            sim_length = sim_length,
-                           int_bed_net_time = int_time_B)
+                           int_bed_net_time = int_time_B,
+                           int_date = intervention_date_B)
 
 top_up_RG_B <- get_top_up(net = "RG",
                           df = df,
                           country = "Benin",
-                          tu_diff_time = 1,
+                          tu_diff_time = tu_diff_time_in,
                           sim_length = sim_length,
-                          int_bed_net_time = int_time_B)
+                          int_bed_net_time = int_time_B,
+                          int_date = intervention_date_B)
 
 top_up_p_only_B <- get_top_up(net = "Pyrethroid_only",
                             df = df,
                             country = "Benin",
-                            tu_diff_time = 1,
+                            tu_diff_time = tu_diff_time_in,
                             sim_length = sim_length,
-                            int_bed_net_time = int_time_B)
+                            int_bed_net_time = int_time_B,
+                            int_date = intervention_date_B)
 
-top_up_IG2_T_0.25y <- get_top_up(net = "IG2",
+top_up_IG2_T <- get_top_up(net = "IG2",
                            df = df,
                            country = "Tanzania",
-                           tu_diff_time = 364/4,
+                           tu_diff_time = tu_diff_time_in,
                            sim_length = sim_length,
-                           int_bed_net_time = int_time_T)
-
-top_up_IG2_T_1y <- get_top_up(net = "IG2",
-                           df = df,
-                           country = "Tanzania",
-                           tu_diff_time = 364,
-                           sim_length = sim_length,
-                           int_bed_net_time = int_time_T)
-
-top_up_IG2_T_3y <- get_top_up(net = "IG2",
-                              df = df,
-                              country = "Tanzania",
-                              tu_diff_time = 365*3,
-                              sim_length = sim_length,
-                              int_bed_net_time = int_time_T)
-
+                           int_bed_net_time = int_time_T,
+                           int_date = intervention_date_T)
 
 top_up_RG_T <- get_top_up(net = "RG",
                            df = df,
                            country = "Tanzania",
-                           tu_diff_time = 1,
+                           tu_diff_time = tu_diff_time_in,
                            sim_length = sim_length,
-                           int_bed_net_time = int_time_T)
+                           int_bed_net_time = int_time_T,
+                          int_date = intervention_date_T)
 
 top_up_PBO_T <- get_top_up(net = "PBO",
                            df = df,
                            country = "Tanzania",
-                           tu_diff_time = 1,
+                           tu_diff_time = tu_diff_time_in,
                            sim_length = sim_length,
-                           int_bed_net_time = int_time_T)
+                           int_bed_net_time = int_time_T,
+                           int_date = intervention_date_T)
 
 top_up_p_only_T <- get_top_up(net = "Pyrethroid_only",
                            df = df,
                            country = "Tanzania",
-                           tu_diff_time = 1,
+                           tu_diff_time = tu_diff_time_in,
                            sim_length = sim_length,
-                           int_bed_net_time = int_time_T)
+                           int_bed_net_time = int_time_T,
+                           int_date = intervention_date_T)
 
 top_up_all <- list("top_up_IG2_B" = top_up_IG2_B,
                  "top_up_RG_B" = top_up_RG_B,
@@ -171,7 +168,7 @@ top_up_PBO_T <- top_up_all$top_up_PBO_T
 top_up_p_only_T <- top_up_all$top_up_p_only_T
 
 # plotting
-png(file = "figures/net_cover.png", height = 750, width = 1100)
+png(file = "figures/net_cover.png", height = 700, width = 1100)
 plot_grid(
   top_up_p_only_T$plot + 
     ggtitle("Tanzania: pyrethroid-only") + 
@@ -235,17 +232,17 @@ get_params <- function(Location,
     list(
       human_population = 10000,
       
-      prevalence_rendering_min_ages = c(0, 5,  0, 0.5) * 365, ## Prev in 6 months to 14 years measured
-      prevalence_rendering_max_ages = c(5,15,100, 14) * 365,
+      prevalence_rendering_min_ages = c(0, 5,  0, 0.5, 0.5) * 365, ## Prev in 6 months to 14 years measured
+      prevalence_rendering_max_ages = c(5,15,100, 14, 10) * 365,
       
-      clinical_incidence_rendering_min_ages = c(0, 5,  0, 0.5) * 365, ## All age clin_inc
-      clinical_incidence_rendering_max_ages = c(5,15,100, 14) * 365,
+      clinical_incidence_rendering_min_ages = c(0, 5,  0, 0.5, 0.5) * 365, ## All age clin_inc
+      clinical_incidence_rendering_max_ages = c(5,15,100, 14, 10) * 365,
       
-      severe_incidence_rendering_min_ages = c(0, 5,  0, 0.5) * 365,
-      severe_incidence_rendering_max_ages = c(5,15,100, 14) * 365,
+      severe_incidence_rendering_min_ages = c(0, 5,  0, 0.5, 0.5) * 365,
+      severe_incidence_rendering_max_ages = c(5,15,100, 14, 10) * 365,
       
       #model_seasonality = TRUE, ## Seasonality to match study site inputs [sites_13]
-      model_seasonality = FALSE,
+      model_seasonality = TRUE,
       g0 = sites$seasonality$g0[site_index],
       g = c(sites$seasonality$g1[site_index], sites$seasonality$g2[site_index], sites$seasonality$g3[site_index]),
       h = c(sites$seasonality$h1[site_index], sites$seasonality$h2[site_index], sites$seasonality$h3[site_index]),
@@ -321,7 +318,8 @@ sim_baseline_EIR <- function(Location_in,
                              
                              human_population = 10000,
                              year = 365,
-                             sim_years = sim_length/365
+                             sim_years = sim_length/365,
+                             previous_mass_dist_times
                              ){
   
   top_up <- get(top_up_name)
@@ -334,17 +332,18 @@ sim_baseline_EIR <- function(Location_in,
                           sites = sites_in,
                           int_time = intervention_time)
   
-  baseline_index <- which(df_in$Location == Location_in & df_in$Net == Net_in & df_in$Time_months == 0)
+  baseline_index <- which(df_in$Location == Location_in & df_in$Net == Net_in & is.na(df_in$Time_months) == 1)
   
   baseline_prev <- df_in[baseline_index, "Malaria_prevalence"]
   
   #baseline_prev_days <- intervention_time - 1 #df_in[baseline_index, "Time_months"] * 30 + 365
   
+  # done for the 30 days
   summary_pfpr <- function(output, 
                            ind = baseline_start_time,
                            min_age = df_in[baseline_index, "Malaria_prev_min_age"]*365,
                            max_age = df_in[baseline_index, "Malaria_prev_max_age"]*365){
-    return(mean(output[ind:(ind+30),paste0('n_detect_',min_age,'_',max_age)] / output[ind:(ind+30),paste0('n_',min_age,'_',max_age)]))
+    return(mean(output[(ind-15):(ind+15),paste0('n_detect_',min_age,'_',max_age)] / output[(ind-15):(ind+15),paste0('n_',min_age,'_',max_age)]))
   }
   
   index <- which(prop_species_in$Location == Location_in & prop_species_in$Net == Net_in & prop_species_in$Country == Country_in)
@@ -379,31 +378,36 @@ sim_baseline_EIR <- function(Location_in,
   #   init_cov <- 1
   # } else{print(paste0("init_cov is less than 1"))}
   
-  retention <- 10^10/365
+  retention <- 10^10
   
-  init_cov <- min(df_in[baseline_index, "Bed_net_use_both"], top_up$covs_df[1,"mean_cov_l"]) #top_up$mean_bed_net_use_both # changed to baseline coverage
+  init_cov <- min(df_in[baseline_index, "Bed_net_use_both"], top_up$mean_bed_net_use_both) # # changed to baseline coverage
   
   # initial bednet event is at time 1
-  bednet_events = data.frame(timestep = c(1),
-                             name=c("baseline_nets")
+  n_mass_dist <- length(previous_mass_dist_times)
+  
+  bednet_events = data.frame(timestep = c(1, previous_mass_dist_times),
+                             name=c("baseline_nets", paste0("mass distribution: ", seq(1, n_mass_dist)))
   )
   
   bednetparams_1 <- set_bednets(bednetparams,
                                 
                                 timesteps = bednet_events$timestep,
                                 
-                                coverages = init_cov,
+                                coverages = rep(init_cov, (1 + n_mass_dist)),
                                 
-                                retention = retention * year, # assumed
+                                retention = retention, # assumed
                                 
                                 # each row needs to show the efficacy parameter across years (and cols are diff mosquito)
                                 # gambiae, coluzzi, arabiensis, funestus, coustani
                                 # no resistance assumed for coustani
                                 
-                                dn0 = matrix(c(dn0, dn0, dn0), nrow = 1, ncol = 3),
-                                rn = matrix(c(rn0, rn0, dn0), nrow = 1, ncol = 3),
-                                rnm = matrix(c(rnm, rnm, rnm), nrow = 1, ncol = 3),
-                                gamman = c(gamman * 365)
+                                dn0 = matrix(c(dn0, dn0, dn0,
+                                               rep(dn0, n_mass_dist * 3)), nrow = (1 + n_mass_dist), ncol = 3),
+                                rn = matrix(c(rn0, rn0, rn0,
+                                              rep(rn0, n_mass_dist * 3)), nrow = (1 + n_mass_dist), ncol = 3),
+                                rnm = matrix(c(rnm, rnm, rnm,
+                                               rep(rnm, n_mass_dist * 3)), nrow = (1 + n_mass_dist), ncol = 3),
+                                gamman = rep(gamman * 365,  (1 + n_mass_dist)) 
                                 )
   
   tol <- ifelse(baseline_prev > 0.7, 0.075, 0.0075)
@@ -428,10 +432,12 @@ T_vals <- data.frame("Location_in" = rep("Misungwi", 4),
 
 cl <- makeCluster(4)
 registerDoParallel(cl)
-clusterExport(cl = cl, varlist = c("T_site", "int_time_T", "baseline_time_T", "df", "df_species_in", 
+clusterExport(cl = cl, varlist = c("T_site", "int_time_T", "baseline_time_T", "mass_dist_times_T",
+                                   "df", "df_species_in", 
                                    "dat_res_pyr", "sim_length", 
                                    "top_up_IG2_T", "top_up_PBO_T", 
-                                   "top_up_RG_T", "top_up_p_only_T"))
+                                   "top_up_RG_T", "top_up_p_only_T",
+                                   "decline_d0", "decline_r0"))
 
 start_EIR_T <- foreach(i=1:nrow(T_vals),
                        .packages = (.packages())
@@ -449,7 +455,8 @@ start_EIR_T <- foreach(i=1:nrow(T_vals),
     dat_res_pyr_in = dat_res_pyr,
     human_population = 10000,
     year = 365,
-    sim_years = sim_length/365)},
+    sim_years = sim_length/365,
+    previous_mass_dist_times = mass_dist_times_T)},
     error = function(cond){
       return(NA)
     })
@@ -458,8 +465,8 @@ saveRDS(start_EIR_T,
         file = "data/start_EIR_T.rds")
 
 stopCluster(cl)
-start_EIR_T <- readRDS(file = "data/start_EIR_T.rds")
 
+start_EIR_T <- readRDS(file = "data/start_EIR_T.rds")
 
 B_vals <- data.frame("Location_in" = c("Cove", "Zagnanado", "Ouinhi"),
                      "Net_in" = c("RG", "IG2", "Pyrethroid_only"),
@@ -468,10 +475,12 @@ B_vals <- data.frame("Location_in" = c("Cove", "Zagnanado", "Ouinhi"),
 
 cl <- makeCluster(3)
 registerDoParallel(cl)
-clusterExport(cl = cl, varlist = c("B_site", "int_time_B", "baseline_time_B", "df", "df_species_in", 
+clusterExport(cl = cl, varlist = c("B_site", "int_time_B", "baseline_time_B", "mass_dist_times_B",
+                                   "df", "df_species_in", 
                                    "dat_res_pyr", "sim_length", 
                                    "top_up_IG2_B",
-                                   "top_up_RG_B", "top_up_p_only_B"))
+                                   "top_up_RG_B", "top_up_p_only_B",
+                                   "decline_d0", "decline_r0"))
 start_EIR_B <- foreach(i=1:nrow(B_vals),
                        .packages = (.packages())
 ) %dopar% {
@@ -488,7 +497,8 @@ start_EIR_B <- foreach(i=1:nrow(B_vals),
     dat_res_pyr_in = dat_res_pyr,
     human_population = 10000,
     year = 365,
-    sim_years = sim_length/365)},
+    sim_years = sim_length/365,
+    previous_mass_dist_times = mass_dist_times_B)},
     error = function(cond){
       return(NA)
     })
@@ -529,13 +539,22 @@ sim_forward <- function(start_EIR,
                         year = 365,
                         sim_years = sim_length/365,
                         em_diff = NULL,
-                        bioassay_uncertainty = "middle"){
+                        bioassay_uncertainty = "middle",
+                        
+                        previous_mass_dist_times,
+                        trial_net_cov_in = NA){
+  
+  print(paste0(Location_in, ": ", int_Net_in))
   
   top_up <- get(top_up_name)
   
   # specifying the retention parameter
   # if no top up then let the nets decline
-  retention <- if(top_up_net == "none"){mean(rstan::extract(top_up$fit_base, "retention")$retention) * 365}else{10^10/365}
+  retention <- if(top_up_net == "none"){
+    case_when(bioassay_uncertainty == "middle" ~ median(rstan::extract(top_up$fit_base, "retention")$retention) * 365,
+              bioassay_uncertainty == "lower" ~ quantile(rstan::extract(top_up$fit_base, "retention")$retention, prob = 0.975)[[1]] * 365,
+              bioassay_uncertainty == "upper" ~ quantile(rstan::extract(top_up$fit_base, "retention")$retention, prob = 0.025)[[1]] * 365)
+    }else{10^10}
   
   sim_length <- sim_years * year
   
@@ -548,7 +567,7 @@ sim_forward <- function(start_EIR,
   baseline_index <- which(df_in$Location == Location_in & 
                             df_in$Net == Net_in & 
                             df_in$Country == Country_in &
-                            df_in$Time_months == 0)
+                            is.na(df_in$Time_months) == 1)
   baseline_prev <- df_in[baseline_index, "Malaria_prevalence"]
   
   
@@ -575,33 +594,59 @@ sim_forward <- function(start_EIR,
   dn0 <- dat_res_pyr_in[bioassay_index, dn0_name]
   rn0 <- dat_res_pyr_in[bioassay_index, rn0_name]
   rnm <- 0.24
-  gamman <- dat_res_pyr_in[bioassay_index, gamman_name]
+  gamman <- dat_res_pyr_in[bioassay_index, gamman_name] * 365
   
   dat_int <- if(int_Net_in == "IG2"){dat_res_pp_in} else if(int_Net_in == "PBO"){dat_res_pbo_in} else if(int_Net_in == "PPF"){dat_res_ppf_in} else if(int_Net_in == "Pyrethroid_only"){dat_res_pyr_in}
     
   int_bioassay_index <- which(round(dat_int$bioassay_mortality, digits = 2) == bioassay_mortality)
   dn0_int <- dat_int[int_bioassay_index, dn0_name]
   rn0_int <- dat_int[int_bioassay_index, rn0_name]
-  gamman_int <- dat_int[int_bioassay_index, gamman_name]
+  gamman_int <- dat_int[int_bioassay_index, gamman_name] * 365
   
   dat_top_up <- if(top_up_net == "IG2"){dat_res_pp_in}else if(top_up_net == "PBO"){dat_res_pbo_in} else if(top_up_net == "PPF"){dat_res_ppf_in} else if(top_up_net == "Pyrethroid_only"){dat_res_pyr_in}
   
   if(top_up_net != "none"){
     tu_bioassay_index <- which(round(dat_top_up$bioassay_mortality, digits = 2) == bioassay_mortality)
-    dn0_tu <- dat_top_up[tu_bioassay_index, dn0_name] #if(top_up_net == "IG2"){0.85}else if(top_up_net == "Pyrethroid_only"){0.05}
-    rn0_tu <- dat_top_up[tu_bioassay_index, rn0_name] #if(top_up_net == "IG2"){0.13}else if(top_up_net == "Pyrethroid_only"){0.05}
-    gamman_tu <- dat_top_up[tu_bioassay_index, gamman_name]
+    dn0_tu <- dat_top_up[tu_bioassay_index, dn0_name]
+    rn0_tu <- dat_top_up[tu_bioassay_index, rn0_name]
+    gamman_tu <- dat_top_up[tu_bioassay_index, gamman_name] * 365
   }
   
   
   bednetparams <- simparams
   
-  init_cov <- min(df_in[baseline_index, "Bed_net_use_both"], top_up$covs_df[1,"mean_cov_l"]) # top_up$mean_bed_net_use_both
+  init_cov <- min(df_in[baseline_index, "Bed_net_use_both"], top_up$mean_bed_net_use_both) # 
   covs_df <- top_up$covs_df
   
+  n_mass_dist <- length(previous_mass_dist_times)
+  
   if(top_up_net == "none"){
-    init_times <- round(seq(1, intervention_time, 365*5), digits = 0)
+    
+    trial_net_cov <- if(is.na(trial_net_cov_in) == FALSE){trial_net_cov_in}else{top_up$mean_bed_net_use_both}
+    
+    init_time_diff <- 30
+    
+    # one extra previous mass distribution
+    init_times <- seq(1, (previous_mass_dist_times - init_time_diff), init_time_diff)
+    dn0_seq <- decline_d0(t = (init_times - 1), dn0 = dn0, gamma_n = gamman) # - 1 because the initial coverage is at time 1
+    rn0_seq <- decline_r0(t = (init_times - 1), rn0 = rn0, rnm = rnm, gamma_n = gamman) # - 1 because the initial coverage is at time 1
+    
+    placeholder_times <- seq(previous_mass_dist_times, intervention_time - init_time_diff, init_time_diff)
+    place_dn0_seq <- decline_d0(t = (placeholder_times - previous_mass_dist_times), dn0 = dn0, gamma_n = gamman)
+    place_rn0_seq <- decline_r0(t = (placeholder_times - previous_mass_dist_times), rn0 = rn0, rnm = rnm, gamma_n = gamman)
+    
+    init_times <- c(init_times, placeholder_times)
+    dn0_seq <- c(dn0_seq, place_dn0_seq)
+    rn0_seq <- c(rn0_seq, place_rn0_seq)
+    
+    #init_times <- round(seq(1, intervention_time, 30), digits = 0)
     n_init_times <- length(init_times)
+    
+    # calculating the initial coverage required to give the mean init cov values
+    mean_init_cov <- calc_base_mean(retention = retention, # the retention parameter is multiplied by 365 in the function so needs to be adjusted
+                                    mean = init_cov,
+                                    min_t = 0,
+                                    max_t = init_time_diff)
     
     bednet_events = data.frame(timestep = c(init_times, intervention_time),
                                name=c(paste0(rep("baseline_nets", n_init_times),
@@ -612,7 +657,7 @@ sim_forward <- function(start_EIR,
                                   
                                   timesteps = bednet_events$timestep,
                                   
-                                  coverages = c(rep(top_up$mean_bed_net_use_both, n_init_times), top_up$mean_bed_net_use_both),
+                                  coverages = c(rep(mean_init_cov, n_init_times), trial_net_cov),
                                   
                                   retention = retention, # assumed
                                   
@@ -620,42 +665,67 @@ sim_forward <- function(start_EIR,
                                   # gambiae, coluzzi, arabiensis, funestus, coustani
                                   # no resistance assumed for coustani
                                   
-                                  dn0 = matrix(c(rep(dn0, n_init_times), dn0_int, 
-                                                 rep(dn0, n_init_times), dn0_int, 
-                                                 rep(dn0, n_init_times), dn0_int), nrow = n_init_times + 1, ncol = 3),
-                                  rn = matrix(c(rep(rn0, n_init_times), rn0_int, 
-                                                rep(rn0, n_init_times), rn0_int, 
-                                                rep(rn0, n_init_times), rn0_int), nrow = n_init_times + 1, ncol = 3),
+                                  dn0 = matrix(c(dn0_seq, dn0_int, 
+                                                 dn0_seq, dn0_int, 
+                                                 dn0_seq, dn0_int), nrow = n_init_times + 1, ncol = 3),
+                                  rn = matrix(c(rn0_seq, rn0_int, 
+                                                rn0_seq, rn0_int, 
+                                                rn0_seq, rn0_int), nrow = n_init_times + 1, ncol = 3),
                                   rnm = matrix(c(rep(rnm, n_init_times), rnm,
                                                  rep(rnm, n_init_times), rnm, 
                                                  rep(rnm, n_init_times), rnm), nrow = n_init_times + 1, ncol = 3),
-                                  gamman = c(rep(gamman, n_init_times), gamman_int) * 365
+                                  gamman = c(rep(gamman, n_init_times), gamman_int)
     )
     
   } else{
     
-  n_top_up <- nrow(covs_df) - 1
+  covs_df <- covs_df[-nrow(covs_df),]
+  n_top_up <- nrow(covs_df)
+  t_times <- covs_df$t + intervention_time
+  p_times <- t_times[-1] - 1
+  n_p_times <- length(p_times)
+  n_t_times <- length(t_times)
+  int_times <- na.omit(c(rbind(t_times, c(p_times, NA))))
   
+  p_covs <- rep(top_up$mean_bed_net_use_both, n_p_times)
+  
+  net_names <- na.omit(c(rbind(paste0("Trial nets: ", seq(1, n_t_times)), c(paste0("Replacement nets: ", seq(1, n_p_times)), NA)))) %>% as.vector()
+  
+  # pyrethroid only nets that are replacing are assumed to be the same age as the trial nets
+  ds_int <- decline_d0(covs_df$t, dn0 = dn0_int, gamma_n = gamman_int)
+  ds_tu <- decline_d0(p_times - intervention_time, dn0 = dn0_tu, gamma_n = gamman_tu)
+  
+  rs_int <- decline_r0(covs_df$t, rn0 = rn0_int, gamma_n = gamman_int, rnm = rnm)
+  rs_tu <- decline_r0(p_times - intervention_time, rn0 = rn0_tu, gamma_n = gamman_tu, rnm = rnm)
+  
+  dn0_vals <- na.omit(c(rbind(ds_int, c(ds_tu, NA))))
+  rn0_vals <- na.omit(c(rbind(rs_int, c(rs_tu, NA))))
+  
+  gamman_in <- na.omit(c(rbind(rep(gamman_int, n_t_times), c(rep(gamman_tu, n_p_times), NA)))) %>% as.vector()
+                      
   # less top up if bioassay mortality is higher
   top_up_name <- case_when(bioassay_uncertainty == "middle" ~ "top_up",
                            bioassay_uncertainty == "lower" ~ "top_up_l",
                            bioassay_uncertainty == "upper" ~ "top_up_u"
                            )
   
-  init_cov_name <- case_when(bioassay_uncertainty == "middle" ~ "mean_cov_m",
-                             bioassay_uncertainty == "lower" ~ "mean_cov_l",
-                             bioassay_uncertainty == "upper" ~ "mean_cov_u")
+  covs_in <- na.omit(c(rbind(covs_df[,top_up_name], c(p_covs, NA)))) %>% as.vector()
   
   # initial bednet event is at time 1
-  bednet_events = data.frame(timestep = c(1, covs_df$t + intervention_time),
-                             name=c("baseline_nets", "intervention_nets", paste0("top_up_nets: ", seq(1, nrow(covs_df)-1)))
+  
+  bednet_events = data.frame(timestep = c(1, previous_mass_dist_times, int_times),
+                             name=c("baseline_nets", paste0("mass distribution: ", seq(1, n_mass_dist)), net_names)
   )
+  
+  dn0_mass_dist <- rep(dn0, n_mass_dist)
+  rn0_mass_dist <- rep(rn0, n_mass_dist)
+  rnm_mass_dist <- rep(rnm, n_mass_dist)
   
   bednetparams_1 <- set_bednets(bednetparams,
 
                                 timesteps = bednet_events$timestep,
 
-                                coverages = c(init_cov, covs_df[1, init_cov_name], covs_df[-1, top_up_name]), # initial coverage is the mean coverage between first two
+                                coverages = c(rep(init_cov, (1 + n_mass_dist)), covs_in), #c(init_cov, covs_df[1, init_cov_name], covs_df[-1, top_up_name]), # initial coverage is the mean coverage between first two
 
                                 retention = retention, # assumed
 
@@ -663,17 +733,29 @@ sim_forward <- function(start_EIR,
                                 # gambiae, coluzzi, arabiensis, funestus, coustani
                                 # no resistance assumed for coustani
 
-                                dn0 = matrix(c(dn0, dn0_int, rep(dn0_tu, n_top_up), 
-                                               dn0, dn0_int, rep(dn0_tu, n_top_up),
-                                               dn0, dn0_int, rep(dn0_tu, n_top_up)), nrow = n_top_up + 2, ncol = 3),
-                                rn = matrix(c(rn0, rn0_int, rep(rn0_tu, n_top_up), 
-                                              rn0, rn0_int, rep(rn0_tu, n_top_up),
-                                              rn0, rn0_int, rep(rn0_tu, n_top_up)), nrow = n_top_up + 2, ncol = 3),
-                                rnm = matrix(c(rnm, rnm, rep(rnm, n_top_up), 
-                                               rnm, rnm, rep(rnm, n_top_up),
-                                               rnm, rnm, rep(rnm, n_top_up)), nrow = n_top_up + 2, ncol = 3),
-                                gamman = c(gamman * 365, 1000000, rep(1000000, n_top_up))#c(gamman, gamman_int, rep(gamman_tu, n_top_up)) * 365
-  )
+                                # dn0 = matrix(c(dn0, dn0_int, rep(dn0_tu, n_top_up), 
+                                #                dn0, dn0_int, rep(dn0_tu, n_top_up),
+                                #                dn0, dn0_int, rep(dn0_tu, n_top_up)), nrow = n_top_up + 2, ncol = 3),
+                                # rn = matrix(c(rn0, rn0_int, rep(rn0_tu, n_top_up), 
+                                #               rn0, rn0_int, rep(rn0_tu, n_top_up),
+                                #               rn0, rn0_int, rep(rn0_tu, n_top_up)), nrow = n_top_up + 2, ncol = 3),
+                                # rnm = matrix(c(rnm, rnm, rep(rnm, n_top_up), 
+                                #                rnm, rnm, rep(rnm, n_top_up),
+                                #                rnm, rnm, rep(rnm, n_top_up)), nrow = n_top_up + 2, ncol = 3),
+                                
+                                dn0 = matrix(c(dn0, dn0_mass_dist, dn0_vals,
+                                               dn0, dn0_mass_dist, dn0_vals,
+                                               dn0, dn0_mass_dist, dn0_vals), nrow = length(int_times) + n_mass_dist + 1, ncol = 3),
+                                
+                                rn = matrix(c(rn0, rn0_mass_dist, rn0_vals,
+                                              rn0, rn0_mass_dist, rn0_vals,
+                                              rn0, rn0_mass_dist, rn0_vals), nrow = length(int_times) + n_mass_dist + 1, ncol = 3),
+                                
+                                rnm = matrix(c(rnm, rnm_mass_dist, rep(rnm, length(int_times)),
+                                               rnm, rnm_mass_dist, rep(rnm, length(int_times)),
+                                               rnm, rnm_mass_dist, rep(rnm, length(int_times))), nrow = length(int_times) + n_mass_dist + 1, ncol = 3),
+
+                                gamman = c(gamman, rep(gamman, n_mass_dist), gamman_in))
     
   }
   
@@ -746,228 +828,6 @@ sim_forward <- function(start_EIR,
 
 T_vals$start_EIR <- unlist(start_EIR_T)
 
-out_none <- sim_forward(start_EIR = T_vals[1, "start_EIR"],
-            
-            Location_in = T_vals[1, "Location_in"],
-            Net_in = T_vals[1, "Net_in"],
-            Country_in = T_vals[1, "Country_in"],
-            
-            int_Net_in = T_vals[1, "Net_in"],
-            
-            top_up_name = T_vals[1, "top_up_name"],
-            
-            top_up_net = "none",
-            
-            sites_in = T_site,
-            
-            intervention_time = int_time_T,
-            baseline_pred_days = baseline_time_T)
-
-out_p_0.25 <- sim_forward(start_EIR = T_vals[1, "start_EIR"],
-                        
-                        Location_in = T_vals[1, "Location_in"],
-                        Net_in = T_vals[1, "Net_in"],
-                        Country_in = T_vals[1, "Country_in"],
-                        
-                        int_Net_in = T_vals[1, "Net_in"],
-                        
-                        top_up_name = "top_up_IG2_T_0.25y",
-                        
-                        top_up_net = "Pyrethroid_only",
-                        
-                        sites_in = T_site,
-                        
-                        intervention_time = int_time_T,
-                        baseline_pred_days = baseline_time_T)
-
-out_IG2_0.25 <- sim_forward(start_EIR = T_vals[1, "start_EIR"],
-                       
-                       Location_in = T_vals[1, "Location_in"],
-                       Net_in = T_vals[1, "Net_in"],
-                       Country_in = T_vals[1, "Country_in"],
-                       
-                       int_Net_in = T_vals[1, "Net_in"],
-                       
-                       top_up_name = "top_up_IG2_T_0.25y",
-                       
-                       top_up_net = "IG2",
-                       
-                       sites_in = T_site,
-                       
-                       intervention_time = int_time_T,
-                       baseline_pred_days = baseline_time_T)
-
-
-out_p_1 <- sim_forward(start_EIR = T_vals[1, "start_EIR"],
-                          
-                          Location_in = T_vals[1, "Location_in"],
-                          Net_in = T_vals[1, "Net_in"],
-                          Country_in = T_vals[1, "Country_in"],
-                          
-                          int_Net_in = T_vals[1, "Net_in"],
-                          
-                          top_up_name = "top_up_IG2_T_1y",
-                          
-                          top_up_net = "Pyrethroid_only",
-                          
-                          sites_in = T_site,
-                          
-                          intervention_time = int_time_T,
-                          baseline_pred_days = baseline_time_T)
-
-
-
-
-out_IG2_1 <- sim_forward(start_EIR = T_vals[1, "start_EIR"],
-                            
-                            Location_in = T_vals[1, "Location_in"],
-                            Net_in = T_vals[1, "Net_in"],
-                            Country_in = T_vals[1, "Country_in"],
-                            
-                            int_Net_in = T_vals[1, "Net_in"],
-                            
-                            top_up_name = "top_up_IG2_T_1y",
-                            
-                            top_up_net = "IG2",
-                            
-                            sites_in = T_site,
-                            
-                            intervention_time = int_time_T,
-                            baseline_pred_days = baseline_time_T)
-
-out_p_3 <- sim_forward(start_EIR = T_vals[1, "start_EIR"],
-                       
-                       Location_in = T_vals[1, "Location_in"],
-                       Net_in = T_vals[1, "Net_in"],
-                       Country_in = T_vals[1, "Country_in"],
-                       
-                       int_Net_in = T_vals[1, "Net_in"],
-                       
-                       top_up_name = "top_up_IG2_T_3y",
-                       
-                       top_up_net = "Pyrethroid_only",
-                       
-                       sites_in = T_site,
-                       
-                       intervention_time = int_time_T,
-                       baseline_pred_days = baseline_time_T)
-
-
-
-
-out_IG2_3 <- sim_forward(start_EIR = T_vals[1, "start_EIR"],
-                         
-                         Location_in = T_vals[1, "Location_in"],
-                         Net_in = T_vals[1, "Net_in"],
-                         Country_in = T_vals[1, "Country_in"],
-                         
-                         int_Net_in = T_vals[1, "Net_in"],
-                         
-                         top_up_name = "top_up_IG2_T_3y",
-                         
-                         top_up_net = "IG2",
-                         
-                         sites_in = T_site,
-                         
-                         intervention_time = int_time_T,
-                         baseline_pred_days = baseline_time_T)
-
-
-plot_grid(
-  ggplot() +
-    geom_line(data = data.frame(t = out_p_0.25$timestep,
-                                prev = out_p_0.25$n_detect_182.5_5110/out_p_0.25$n_182.5_5110),
-              aes(x = t, y = prev), col = "skyblue") +
-    # geom_line(data = data.frame(t = out_none$timestep,
-    #                             prev = out_none$n_detect_182.5_5110/out_none$n_182.5_5110),
-    #           aes(x = t, y = prev), col = "darkgreen") + 
-    geom_vline(xintercept = int_time_T, linetype = 2) +
-    geom_line(data = data.frame(t = out_IG2_0.25$timestep,
-                                prev = out_IG2_0.25$n_detect_182.5_5110/out_IG2_0.25$n_182.5_5110),
-              aes(x = t, y = prev), col = "orange") +
-    coord_cartesian(xlim = c(baseline_time_B - 365, baseline_time_B + 365*50)) +
-    theme_bw() +
-    ggtitle("Quarterly replacement of nets"),
-  
-  ggplot() +
-  geom_line(data = data.frame(t = out_p_1$timestep,
-                              prev = out_p_1$n_detect_182.5_5110/out_p_1$n_182.5_5110),
-            aes(x = t, y = prev), col = "skyblue") +
-  # geom_line(data = data.frame(t = out_none$timestep,
-  #                             prev = out_none$n_detect_182.5_5110/out_none$n_182.5_5110),
-  #           aes(x = t, y = prev), col = "darkgreen") + 
-  geom_vline(xintercept = int_time_T, linetype = 2) +
-  geom_line(data = data.frame(t = out_IG2_1$timestep,
-                              prev = out_IG2_1$n_detect_182.5_5110/out_IG2_1$n_182.5_5110),
-            aes(x = t, y = prev), col = "orange") +
-  coord_cartesian(xlim = c(baseline_time_B - 365, baseline_time_B + 365*50)) +
-  theme_bw() +
-    ggtitle("Yearly replacement of nets"),
-  
-  ggplot() +
-    geom_line(data = data.frame(t = out_p_3$timestep,
-                                prev = out_p_3$n_detect_182.5_5110/out_p_3$n_182.5_5110),
-              aes(x = t, y = prev), col = "skyblue") +
-    # geom_line(data = data.frame(t = out_none$timestep,
-    #                             prev = out_none$n_detect_182.5_5110/out_none$n_182.5_5110),
-    #           aes(x = t, y = prev), col = "darkgreen") + 
-    geom_vline(xintercept = int_time_T, linetype = 2) +
-    geom_line(data = data.frame(t = out_IG2_3$timestep,
-                                prev = out_IG2_3$n_detect_182.5_5110/out_IG2_3$n_182.5_5110),
-              aes(x = t, y = prev), col = "orange") +
-    coord_cartesian(xlim = c(baseline_time_B - 365, baseline_time_B + 365*50)) +
-    theme_bw() +
-    ggtitle("Replacement of nets every three years")
-  
-  
-)
-
-
-
-
-ggplot() +
-  geom_line(data = data.frame(t = out_p_0.25$timestep,
-                              cov = out_p_0.25$n_use_net),
-            aes(x = t, y = cov), col = "skyblue") +
-  # geom_line(data = data.frame(t = out_none$timestep,
-  #                             prev = out_none$n_detect_182.5_5110/out_none$n_182.5_5110),
-  #           aes(x = t, y = prev), col = "darkgreen") + 
-  geom_vline(xintercept = int_time_T, linetype = 2) +
-  geom_line(data = data.frame(t = out_IG2_0.25$timestep,
-                              cov = out_IG2_0.25$n_use_net),
-            aes(x = t, y = cov), col = "orange") +
-  coord_cartesian(xlim = c(baseline_time_B - 365, baseline_time_B + 365*10)) +
-  theme_bw()
-
-ggplot() +
-  geom_line(data = data.frame(t = out_p_1$timestep,
-                              EIR = out_p_1$EIR_funestus),
-            aes(x = t, y = EIR), col = "skyblue") +
-  # geom_line(data = data.frame(t = out_none$timestep,
-  #                             prev = out_none$n_detect_182.5_5110/out_none$n_182.5_5110),
-  #           aes(x = t, y = prev), col = "darkgreen") + 
-  geom_vline(xintercept = int_time_T, linetype = 2) +
-  geom_line(data = data.frame(t = out_IG2_1$timestep,
-                              EIR = out_IG2_1$EIR_funestus),
-            aes(x = t, y = EIR), col = "orange") +
-  coord_cartesian(xlim = c(baseline_time_B - 365, baseline_time_B + 365*5)) +
-  theme_bw()
-
-ggplot() +
-  geom_line(data = data.frame(t = out_p_1$timestep,
-                              prev = out_p_1$n_detect_182.5_5110/out_p_1$n_182.5_5110),
-            aes(x = t, y = prev), col = "skyblue") +
-  # geom_line(data = data.frame(t = out_none$timestep,
-  #                             prev = out_none$n_detect_182.5_5110/out_none$n_182.5_5110),
-  #           aes(x = t, y = prev), col = "darkgreen") + 
-  geom_vline(xintercept = int_time_T, linetype = 2) +
-  geom_line(data = data.frame(t = out_IG2_1$timestep,
-                              prev = out_IG2_1$n_detect_182.5_5110/out_IG2_1$n_182.5_5110),
-            aes(x = t, y = prev), col = "orange") +
-  coord_cartesian(xlim = c(baseline_time_B - 365, baseline_time_B + 365*5)) +
-  theme_bw()
-
-
 # running the simulations
 T_vals_pred_u <- rbind(T_vals %>% mutate(int_Net_in = "IG2", start_EIR = unlist(start_EIR_T)),
                      T_vals %>% mutate(int_Net_in = "PBO", start_EIR = unlist(start_EIR_T)),
@@ -980,7 +840,7 @@ T_vals_pred_b <- rbind(T_vals_pred_u %>% mutate(bioassay_uncertainty = "middle")
                        T_vals_pred_u %>% mutate(bioassay_uncertainty = "upper")) %>% as.data.frame()
 
 T_vals_pred <- bind_rows(
-  lapply(seq(1, 5, 1), function(i, T_vals_pred_b){
+  lapply(seq(1, 3, 1), function(i, T_vals_pred_b){
     T_vals_pred_b %>% mutate(rep = i)}, 
     T_vals_pred_b = T_vals_pred_b)
   )
@@ -989,8 +849,10 @@ cl <- makeCluster(5)
 registerDoParallel(cl)
 clusterExport(cl = cl, varlist = c("T_site", "int_time_T", "baseline_time_T", "df", "df_species_in", 
                                    "dat_res_pyr", "sim_length", "dat_res_pp", "dat_res_pbo",
-                                   "top_up_IG2_T", "top_up_PBO_T", 
-                                   "top_up_RG_T", "top_up_p_only_T"))
+                                   "top_up_IG2_T", "top_up_PBO_T", "mass_dist_times_T",
+                                   "top_up_RG_T", "top_up_p_only_T",
+                                   "decline_d0", "decline_r0",
+                                   "calc_base_mean"))
 pred_prev_T <- foreach(i=1:nrow(T_vals_pred),
                        .packages = (.packages())
 ) %dopar% {
@@ -1004,7 +866,8 @@ pred_prev_T <- foreach(i=1:nrow(T_vals_pred),
                         sites_in = T_site,
                         intervention_time = int_time_T,
                         baseline_pred_days = baseline_time_T,
-                        bioassay_uncertainty = T_vals_pred[i, "bioassay_uncertainty"])
+                        bioassay_uncertainty = T_vals_pred[i, "bioassay_uncertainty"],
+                        previous_mass_dist_times = mass_dist_times_T)
   },
   error = function(cond){
     return(NA)
@@ -1032,17 +895,20 @@ T_vals_pred_tu_s <- rbind(T_vals_tu_s %>% mutate(bioassay_uncertainty = "middle"
                        T_vals_tu_s %>% mutate(bioassay_uncertainty = "upper")) %>% as.data.frame()
 
 T_vals_pred_tu <- bind_rows(
-  lapply(seq(1, 5, 1), function(i, T_vals_pred_b){
+  lapply(seq(1, 3, 1), function(i, T_vals_pred_b){
     T_vals_pred_b %>% mutate(rep = i)}, 
     T_vals_pred_b = T_vals_pred_tu_s)
 )
 
 cl <- makeCluster(5)
 registerDoParallel(cl)
-clusterExport(cl = cl, varlist = c("T_site", "int_time_T", "baseline_time_T", "df", "df_species_in", 
+clusterExport(cl = cl, varlist = c("T_site", "int_time_T", "baseline_time_T",  "mass_dist_times_T",
+                                   "df", "df_species_in", 
                                    "dat_res_pyr", "sim_length", "dat_res_pp", "dat_res_pbo",
                                    "top_up_IG2_T", "top_up_PBO_T", 
-                                   "top_up_RG_T", "top_up_p_only_T"))
+                                   "top_up_RG_T", "top_up_p_only_T",
+                                   "decline_d0", "decline_r0",
+                                   "calc_base_mean"))
 pred_prev_T_tu <- foreach(i=1:nrow(T_vals_pred_tu),
                        .packages = (.packages())
 ) %dopar% {
@@ -1056,7 +922,8 @@ pred_prev_T_tu <- foreach(i=1:nrow(T_vals_pred_tu),
                         sites_in = T_site,
                         intervention_time = int_time_T,
                         baseline_pred_days = baseline_time_T,
-                        bioassay_uncertainty = T_vals_pred_tu[i, "bioassay_uncertainty"])
+                        bioassay_uncertainty = T_vals_pred_tu[i, "bioassay_uncertainty"],
+                        previous_mass_dist_times = mass_dist_times_T)
   },
   error = function(cond){
     return(NA)
@@ -1066,6 +933,49 @@ saveRDS(pred_prev_T_tu,
         file = "data/pred_prev_T_tu.rds")
 
 stopCluster(cl)
+
+pred_prev_T_tu <- readRDS(file = "data/pred_prev_T_tu.rds")
+
+# model with no top up
+T_vals_pred_tu_none <- T_vals_pred_tu %>% mutate(top_up_net = "none",
+                                                 trial_net_cov_in = 0)
+
+cl <- makeCluster(5)
+registerDoParallel(cl)
+clusterExport(cl = cl, varlist = c("T_site", "int_time_T", "baseline_time_T",  "mass_dist_times_T",
+                                   "df", "df_species_in", 
+                                   "dat_res_pyr", "sim_length", "dat_res_pp", "dat_res_pbo",
+                                   "top_up_IG2_T", "top_up_PBO_T", 
+                                   "top_up_RG_T", "top_up_p_only_T",
+                                   "decline_d0", "decline_r0",
+                                   "calc_base_mean"))
+pred_prev_T_tu_none <- foreach(i=1:nrow(T_vals_pred_tu_none),
+                          .packages = (.packages())
+) %dopar% {
+  tryCatch({sim_forward(start_EIR = T_vals_pred_tu_none[i, "start_EIR"],
+                        Location_in = T_vals_pred_tu_none[i, "Location_in"],
+                        Net_in = T_vals_pred_tu_none[i, "Net_in"],
+                        Country_in = T_vals_pred_tu_none[i, "Country_in"],
+                        int_Net_in = T_vals_pred_tu_none[i, "int_Net_in"],
+                        top_up_name = T_vals_pred_tu_none[i, "top_up_name"],
+                        top_up_net = T_vals_pred_tu_none[i, "top_up_net"],
+                        sites_in = T_site,
+                        intervention_time = int_time_T,
+                        baseline_pred_days = baseline_time_T,
+                        bioassay_uncertainty = T_vals_pred_tu_none[i, "bioassay_uncertainty"],
+                        previous_mass_dist_times = mass_dist_times_T,
+                        trial_net_cov_in = T_vals_pred_tu_none[i, "trial_net_cov_in"])
+  },
+  error = function(cond){
+    return(NA)
+  })
+}
+saveRDS(pred_prev_T_tu_none, 
+        file = "data/pred_prev_T_tu_none.rds")
+
+stopCluster(cl)
+
+pred_prev_T_tu_none <- readRDS(file = "data/pred_prev_T_tu_none.rds")
 
 # Benin
 B_vals_pred_u <- rbind(B_vals %>% mutate(int_Net_in = "IG2", start_EIR = unlist(start_EIR_B)),
@@ -1079,17 +989,20 @@ B_vals_pred_b <- rbind(B_vals_pred_u %>% mutate(bioassay_uncertainty = "middle")
                        B_vals_pred_u %>% mutate(bioassay_uncertainty = "upper")) 
 
 B_vals_pred <- bind_rows(
-  lapply(seq(1, 5, 1), function(i, B_vals_pred_b){
+  lapply(seq(1, 3, 1), function(i, B_vals_pred_b){
     B_vals_pred_b %>% mutate(rep = i)}, 
     B_vals_pred_b = B_vals_pred_b)
 )
 
 cl <- makeCluster(5)
 registerDoParallel(cl)
-clusterExport(cl = cl, varlist = c("B_site", "int_time_B", "baseline_time_B", "df", "df_species_in", 
+clusterExport(cl = cl, varlist = c("B_site", "int_time_B", "baseline_time_B",  "mass_dist_times_B",
+                                   "df", "df_species_in", 
                                    "dat_res_pyr", "sim_length", "dat_res_pp", "dat_res_pbo",
                                    "top_up_IG2_B",
-                                   "top_up_RG_B", "top_up_p_only_B"))
+                                   "top_up_RG_B", "top_up_p_only_B",
+                                   "decline_d0", "decline_r0",
+                                   "calc_base_mean"))
 pred_prev_B <- foreach(i=1:nrow(B_vals_pred),
                        .packages = (.packages())
 ) %dopar% {
@@ -1103,7 +1016,8 @@ pred_prev_B <- foreach(i=1:nrow(B_vals_pred),
                         sites_in = B_site,
                         intervention_time = int_time_B,
                         baseline_pred_days = baseline_time_B,
-                        bioassay_uncertainty = B_vals_pred[i, "bioassay_uncertainty"])
+                        bioassay_uncertainty = B_vals_pred[i, "bioassay_uncertainty"],
+                        previous_mass_dist_times = mass_dist_times_B)
   },
   error = function(cond){
     return(NA)
@@ -1128,17 +1042,20 @@ B_vals_pred_tu_s <- rbind(B_vals_tu_s %>% mutate(bioassay_uncertainty = "middle"
                           B_vals_tu_s %>% mutate(bioassay_uncertainty = "upper")) %>% as.data.frame()
 
 B_vals_pred_tu <- bind_rows(
-  lapply(seq(1, 5, 1), function(i, T_vals_pred_b){
+  lapply(seq(1, 3, 1), function(i, T_vals_pred_b){
     T_vals_pred_b %>% mutate(rep = i)}, 
     T_vals_pred_b = B_vals_pred_tu_s)
 )
 
 cl <- makeCluster(5)
 registerDoParallel(cl)
-clusterExport(cl = cl, varlist = c("B_site", "int_time_B", "baseline_time_B", "df", "df_species_in", 
+clusterExport(cl = cl, varlist = c("B_site", "int_time_B", "baseline_time_B",  "mass_dist_times_B",
+                                   "df", "df_species_in", 
                                    "dat_res_pyr", "sim_length", "dat_res_pp", "dat_res_pbo",
                                    "top_up_IG2_B",
-                                   "top_up_RG_B", "top_up_p_only_B"))
+                                   "top_up_RG_B", "top_up_p_only_B",
+                                   "decline_d0", "decline_r0",
+                                   "calc_base_mean"))
 pred_prev_B_tu <- foreach(i=1:nrow(B_vals_pred_tu),
                        .packages = (.packages())
 ) %dopar% {
@@ -1152,7 +1069,8 @@ pred_prev_B_tu <- foreach(i=1:nrow(B_vals_pred_tu),
                         sites_in = B_site,
                         intervention_time = int_time_B,
                         baseline_pred_days = baseline_time_B,
-                        bioassay_uncertainty = B_vals_pred_tu[i, "bioassay_uncertainty"])
+                        bioassay_uncertainty = B_vals_pred_tu[i, "bioassay_uncertainty"],
+                        previous_mass_dist_times = mass_dist_times_B)
   },
   error = function(cond){
     return(NA)
@@ -1163,8 +1081,49 @@ saveRDS(pred_prev_B_tu,
 
 stopCluster(cl)
 
-# RG model
+pred_prev_B_tu <- readRDS(file = "data/pred_prev_B_tu.rds")
 
+B_vals_pred_tu_none <- B_vals_pred_tu %>% mutate(top_up_net = "none",
+                                                 trial_net_cov_in = 0)
+                             
+cl <- makeCluster(5)
+registerDoParallel(cl)
+clusterExport(cl = cl, varlist = c("B_site", "int_time_B", "baseline_time_B", "mass_dist_times_B",
+                                   "df", "df_species_in", 
+                                   "dat_res_pyr", "sim_length", "dat_res_pp", "dat_res_pbo",
+                                   "top_up_IG2_B",
+                                   "top_up_RG_B", "top_up_p_only_B",
+                                   "decline_d0", "decline_r0",
+                                   "calc_base_mean"))
+pred_prev_B_tu_none <- foreach(i=1:nrow(B_vals_pred_tu_none),
+                          .packages = (.packages())
+) %dopar% {
+  tryCatch({sim_forward(start_EIR = B_vals_pred_tu_none[i, "start_EIR"],
+                        Location_in = B_vals_pred_tu_none[i, "Location_in"],
+                        Net_in = B_vals_pred_tu_none[i, "Net_in"],
+                        Country_in = B_vals_pred_tu_none[i, "Country_in"],
+                        int_Net_in = B_vals_pred_tu_none[i, "int_Net_in"],
+                        top_up_name = B_vals_pred_tu_none[i, "top_up_name"],
+                        top_up_net = B_vals_pred_tu_none[i, "top_up_net"],
+                        sites_in = B_site,
+                        intervention_time = int_time_B,
+                        baseline_pred_days = baseline_time_B,
+                        bioassay_uncertainty = B_vals_pred_tu_none[i, "bioassay_uncertainty"],
+                        previous_mass_dist_times = mass_dist_times_B,
+                        trial_net_cov_in = B_vals_pred_tu_none[i, "trial_net_cov_in"])
+  },
+  error = function(cond){
+    return(NA)
+  })
+}
+saveRDS(pred_prev_B_tu_none, 
+        file = "data/pred_prev_B_tu_none.rds")
+
+stopCluster(cl)
+
+pred_prev_B_tu_none <- readRDS(file = "data/pred_prev_B_tu_none.rds")
+
+# RG model
 devtools::dev_mode(on = TRUE, path = getOption("devtools.path"))
 detach("package:malariasimulation", unload=TRUE)
 library(malariasimulation); library(malariaEquilibrium)
@@ -1224,23 +1183,39 @@ for(i in 1:length(pred_prev_B)){
   pred_prev_B[[i]]$date <- seq(start_date, by = "day", length.out = length(pred_prev_B[[i]]$timestep))
 }
 
-for(i in 1:length(pred_prev_B_RG)){
-  pred_prev_B_RG[[i]]$date <- seq(start_date, by = "day", length.out = length(pred_prev_B_RG[[i]]$timestep))
+for(i in 1:length(pred_prev_B_tu)){
+  pred_prev_B_tu[[i]]$date <- seq(start_date, by = "day", length.out = length(pred_prev_B_tu[[i]]$timestep))
+}
+
+for(i in 1:length(pred_prev_B_tu_none)){
+  pred_prev_B_tu_none[[i]]$date <- seq(start_date, by = "day", length.out = length(pred_prev_B_tu_none[[i]]$timestep))
 }
 
 for(i in 1:length(pred_prev_T)){
   pred_prev_T[[i]]$date <- seq(start_date, by = "day", length.out = length(pred_prev_T[[1]]$timestep))
 }
 
-extract_mean_prev <- function(Net_in, 
+for(i in 1:length(pred_prev_T_tu)){
+  pred_prev_T_tu[[i]]$date <- seq(start_date, by = "day", length.out = length(pred_prev_T_tu[[1]]$timestep))
+}
+
+for(i in 1:length(pred_prev_T_tu_none)){
+  pred_prev_T_tu_none[[i]]$date <- seq(start_date, by = "day", length.out = length(pred_prev_T_tu_none[[1]]$timestep))
+}
+
+extract_prev <- function(Net_in, 
                               int_Net_in,
                               Country_in,
                               bioassay_uncertainty,
                               vals_pred, 
                               pred_prev,
                               top_up_net = NA,
-                              n_rep = 5){
+                              n_rep = 3,
+                         trial_net_cov_in = NULL){
   
+  #p <- if(bioassay_uncertainty == "middle"){0.5} else if(bioassay_uncertainty == "lower"){0.025} else{0.975}
+  
+  if(is.null(trial_net_cov_in) == 1){
   inds <- if(is.na(top_up_net) == 1){
     which(vals_pred$Net_in == Net_in & 
           vals_pred$int_Net_in == int_Net_in &
@@ -1250,248 +1225,624 @@ extract_mean_prev <- function(Net_in,
             vals_pred$int_Net_in == int_Net_in &
             vals_pred$bioassay_uncertainty == bioassay_uncertainty &
             vals_pred$top_up_net == top_up_net)
+  }} else{
+    
+    inds <- if(is.na(top_up_net) == 1){
+      which(vals_pred$Net_in == Net_in & 
+              vals_pred$int_Net_in == int_Net_in &
+              vals_pred$bioassay_uncertainty == bioassay_uncertainty &
+              is.na(vals_pred$trial_net_cov_in) == is.na(trial_net_cov_in))
+    } else{
+      which(vals_pred$Net_in == Net_in & 
+              vals_pred$int_Net_in == int_Net_in &
+              vals_pred$bioassay_uncertainty == bioassay_uncertainty &
+              vals_pred$top_up_net == top_up_net &
+      is.na(vals_pred$trial_net_cov_in) == is.na(trial_net_cov_in))
+    }
+    
+    
   }
   
   
   if(length(inds) != n_rep){return(NA)}else{
+    
     prev_mat <- if(Country_in == "Tanzania"){sapply(inds, function(i, p){summary_pfpr_0.5_5(p[[i]])}, p = pred_prev)
-      } else if(Country_in == "Benin"){sapply(inds, function(i, p){summary_pfpr_0_100_all(p[[i]])}, p = pred_prev)}
-    return(rowMeans(prev_mat))
+    } else if(Country_in == "Benin"){sapply(inds, function(i, p){summary_pfpr_0_100_all(p[[i]])}, p = pred_prev)
+    }
+    
+    return(apply(prev_mat, 1, mean))
+  }
+}
+
+extract_mean_prev <- function(Net_in, 
+                              int_Net_in,
+                              Country_in,
+                              vals_pred, 
+                              pred_prev,
+                              top_up_net = NA,
+                              n_rep = 3,
+                              trial_net_cov_in = NULL){
+  
+  
+  inds <- if(is.null(trial_net_cov_in) == 1){if(is.na(top_up_net) == 1){
+    which(vals_pred$Net_in == Net_in & 
+            vals_pred$int_Net_in == int_Net_in)
+  } else{
+    which(vals_pred$Net_in == Net_in & 
+            vals_pred$int_Net_in == int_Net_in &
+            vals_pred$top_up_net == top_up_net)
+  }} else{
+    if(is.na(top_up_net) == 1){
+      which(vals_pred$Net_in == Net_in & 
+              vals_pred$int_Net_in == int_Net_in &
+              is.na(vals_pred$trial_net_cov_in) == is.na(trial_net_cov_in))
+    } else{
+      which(vals_pred$Net_in == Net_in & 
+              vals_pred$int_Net_in == int_Net_in &
+              vals_pred$top_up_net == top_up_net &
+              is.na(vals_pred$trial_net_cov_in) == is.na(trial_net_cov_in))
+    }
+  }
+  
+  if(length(inds) != n_rep*3){return(NA)}else{
+    
+    prev_mat <- if(Country_in == "Tanzania"){sapply(inds, function(i, p){summary_pfpr_0.5_5(p[[i]])}, p = pred_prev)
+    } else if(Country_in == "Benin"){sapply(inds, function(i, p){summary_pfpr_0_100_all(p[[i]])}, p = pred_prev)
+    }
+    
+    out <- as.data.frame(prev_mat) %>% mutate(mean = rowMeans(prev_mat),
+                                              t = pred_prev[[1]]$timestep,
+                                              date = pred_prev[[1]]$date) %>% 
+      pivot_longer(!c(t, date), names_to = "rep", values_to = "prev") %>% 
+      as.data.frame()
+    
+    return(out)
   }
 }
 
 arm_sims_T <- data.frame("t" = rep(pred_prev_T[[1]]$timestep, 3),
-                         "date" = rep(pred_prev_T[[1]]$date, 3),
-                         "net" = c(rep("IG2", sim_length),
-                                   rep("PBO", sim_length),
-                                   rep("Pyrethroid_only", sim_length)),
-                         "prev" = c(extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                      Country_in = "Tanzania", bioassay_uncertainty = "middle",
-                                                      vals_pred = T_vals_pred, pred_prev = pred_prev_T),
-                                    extract_mean_prev(Net_in = "PBO", int_Net_in = "PBO", 
-                                                      Country_in = "Tanzania", bioassay_uncertainty = "middle",
-                                                      vals_pred = T_vals_pred, pred_prev = pred_prev_T),
-                                    extract_mean_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only", 
-                                                      Country_in = "Tanzania", bioassay_uncertainty = "middle",
-                                                      vals_pred = T_vals_pred, pred_prev = pred_prev_T)
-                                    ),
-                         "lower" = c(extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                      Country_in = "Tanzania", bioassay_uncertainty = "lower",
-                                                      vals_pred = T_vals_pred, pred_prev = pred_prev_T),
-                                    extract_mean_prev(Net_in = "PBO", int_Net_in = "PBO", 
-                                                      Country_in = "Tanzania", bioassay_uncertainty = "lower",
-                                                      vals_pred = T_vals_pred, pred_prev = pred_prev_T),
-                                    extract_mean_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only", 
-                                                      Country_in = "Tanzania", bioassay_uncertainty = "lower",
-                                                      vals_pred = T_vals_pred, pred_prev = pred_prev_T)
-                         ),
-                         "upper" = c(extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                      Country_in = "Tanzania", bioassay_uncertainty = "upper",
-                                                      vals_pred = T_vals_pred, pred_prev = pred_prev_T),
-                                    extract_mean_prev(Net_in = "PBO", int_Net_in = "PBO", 
-                                                      Country_in = "Tanzania", bioassay_uncertainty = "upper",
-                                                      vals_pred = T_vals_pred, pred_prev = pred_prev_T),
-                                    extract_mean_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only", 
-                                                      Country_in = "Tanzania", bioassay_uncertainty = "upper",
-                                                      vals_pred = T_vals_pred, pred_prev = pred_prev_T)
-                         )
-                         )
-
-
-arm_sims_B <- data.frame("t" = rep(pred_prev_B[[1]]$timestep, 2),
-                         "date" = rep(pred_prev_B[[1]]$date, 2),
-                         "net" = c(rep("IG2", sim_length),
-                                   rep("Pyrethroid_only", sim_length)),
-                         "prev" = c(extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                      Country_in = "Benin", bioassay_uncertainty = "middle",
-                                                      vals_pred = B_vals_pred, pred_prev = pred_prev_B),
-                                    extract_mean_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only", 
-                                                      Country_in = "Benin", bioassay_uncertainty = "middle",
-                                                      vals_pred = B_vals_pred, pred_prev = pred_prev_B)
-                         ),
-                         "lower" = c(extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                       Country_in = "Benin", bioassay_uncertainty = "lower",
-                                                       vals_pred = B_vals_pred, pred_prev = pred_prev_B),
-                                     extract_mean_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only", 
-                                                       Country_in = "Benin", bioassay_uncertainty = "lower",
-                                                       vals_pred = B_vals_pred, pred_prev = pred_prev_B)
-                         ),
-                         "upper" = c(extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                       Country_in = "Benin", bioassay_uncertainty = "upper",
-                                                       vals_pred = B_vals_pred, pred_prev = pred_prev_B),
-                                     extract_mean_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only", 
-                                                       Country_in = "Benin", bioassay_uncertainty = "upper",
-                                                       vals_pred = B_vals_pred, pred_prev = pred_prev_B)
-                         )
+                            "date" = rep(pred_prev_T[[1]]$date, 3),
+                            "net" = c(rep("IG2", sim_length),
+                                      rep("PBO", sim_length),
+                                      rep("Pyrethroid_only", sim_length)),
+                            
+                            "prev" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                    Country_in = "Tanzania", bioassay_uncertainty = "middle",
+                                                    vals_pred = T_vals_pred, pred_prev = pred_prev_T),
+                                       
+                                       extract_prev(Net_in = "PBO", int_Net_in = "PBO",
+                                                    Country_in = "Tanzania", bioassay_uncertainty = "middle",
+                                                    vals_pred = T_vals_pred, pred_prev = pred_prev_T),
+                                       
+                                       extract_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                                    Country_in = "Tanzania", bioassay_uncertainty = "middle",
+                                                    vals_pred = T_vals_pred, pred_prev = pred_prev_T)
+                            ),
+                            
+                            "lower" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                     Country_in = "Tanzania", bioassay_uncertainty = "lower",
+                                                     vals_pred = T_vals_pred, pred_prev = pred_prev_T),
+                                        
+                                        extract_prev(Net_in = "PBO", int_Net_in = "PBO",
+                                                     Country_in = "Tanzania", bioassay_uncertainty = "lower",
+                                                     vals_pred = T_vals_pred, pred_prev = pred_prev_T),
+                                        
+                                        extract_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                                     Country_in = "Tanzania", bioassay_uncertainty = "lower",
+                                                     vals_pred = T_vals_pred, pred_prev = pred_prev_T)
+                            ),
+                            
+                            "upper" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                     Country_in = "Tanzania", bioassay_uncertainty = "upper",
+                                                     vals_pred = T_vals_pred, pred_prev = pred_prev_T),
+                                        
+                                        extract_prev(Net_in = "PBO", int_Net_in = "PBO",
+                                                     Country_in = "Tanzania", bioassay_uncertainty = "upper",
+                                                     vals_pred = T_vals_pred, pred_prev = pred_prev_T),
+                                        
+                                        extract_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                                     Country_in = "Tanzania", bioassay_uncertainty = "upper",
+                                                     vals_pred = T_vals_pred, pred_prev = pred_prev_T)
+                            )
 )
 
+arm_sims_B <- data.frame("t" = rep(pred_prev_B[[1]]$timestep, 2),
+                            "date" = rep(pred_prev_B[[1]]$date, 2),
+                            "net" = c(rep("IG2", sim_length),
+                                      rep("Pyrethroid_only", sim_length)),
+                            "prev" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                    Country_in = "Benin", bioassay_uncertainty = "middle",
+                                                    vals_pred = B_vals_pred, pred_prev = pred_prev_B),
+                                       extract_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                                    Country_in = "Benin", bioassay_uncertainty = "middle",
+                                                    vals_pred = B_vals_pred, pred_prev = pred_prev_B)
+                            ),
+                            "lower" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                     Country_in = "Benin", bioassay_uncertainty = "lower",
+                                                     vals_pred = B_vals_pred, pred_prev = pred_prev_B),
+                                        extract_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                                     Country_in = "Benin", bioassay_uncertainty = "lower",
+                                                     vals_pred = B_vals_pred, pred_prev = pred_prev_B)
+                            ),
+                            "upper" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                     Country_in = "Benin", bioassay_uncertainty = "upper",
+                                                     vals_pred = B_vals_pred, pred_prev = pred_prev_B),
+                                        extract_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                                     Country_in = "Benin", bioassay_uncertainty = "upper",
+                                                     vals_pred = B_vals_pred, pred_prev = pred_prev_B)
+                            )
+)
+
+# arm_sims_T <- rbind(extract_prev(Net_in = "IG2", int_Net_in = "IG2", 
+#                                                       Country_in = "Tanzania",
+#                                                       vals_pred = T_vals_pred, 
+#                                                       pred_prev = pred_prev_T) %>% mutate(net = "IG2"),
+#                                     extract_mean_prev(Net_in = "PBO", int_Net_in = "PBO", 
+#                                                       Country_in = "Tanzania",
+#                                                       vals_pred = T_vals_pred, 
+#                                                       pred_prev = pred_prev_T) %>% mutate(net = "PBO"),
+#                                     extract_mean_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only", 
+#                                                       Country_in = "Tanzania",
+#                                                       vals_pred = T_vals_pred, 
+#                                                       pred_prev = pred_prev_T) %>% mutate(net = "Pyrethroid_only")
+#                                     )
+
+# arm_sims_B <- rbind(extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
+#                                       Country_in = "Benin",
+#                                       vals_pred = B_vals_pred, 
+#                                       pred_prev = pred_prev_B) %>% mutate(net = "IG2"),
+#                     extract_mean_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only", 
+#                                       Country_in = "Benin",
+#                                       vals_pred = B_vals_pred, 
+#                                       pred_prev = pred_prev_B) %>% mutate(net = "Pyrethroid_only")
+# )
+
 # Tanzania
-T_arm_plot <- ggplot(data = arm_sims_T) +
+df_T_prev <- na.omit(df_T[,c("Net", "date", "Malaria_prevalence", "Malaria_prevalence_l", "Malaria_prevalence_u")])
+
+T_arm_plot <- ggplot() +
   geom_vline(xintercept = intervention_date_T, linetype = 2, linewidth = 1, alpha = 0.5) +
-  geom_ribbon(aes(x = date, ymin = lower, ymax = upper, fill = net), alpha = 0.25) +
-  geom_line(aes(x = date, y = prev, col = net)) +
-  geom_pointrange(data = subset(df_T, Net == "PBO"), 
+  geom_ribbon(data = arm_sims_T,
+              aes(x = date, y = prev, ymin = upper, ymax = lower, 
+                 group = net, fill = net), alpha = 0.4) +
+  geom_line(data = arm_sims_T,
+            aes(x = date, y = prev, 
+                col = net, group = net), linewidth = 1) +
+  geom_pointrange(data = subset(df_T_prev, 
+                                Net == "PBO"), 
              aes(x = date, y = Malaria_prevalence, ymin = Malaria_prevalence_l, ymax = Malaria_prevalence_u),
-             fill = "purple", size = 0.75, shape = 21) +
-  geom_pointrange(data = subset(df_T, Net == "IG2"), 
+             fill = "aquamarine", size = 0.9, shape = 21) +
+  geom_pointrange(data = subset(df_T_prev, Net == "IG2"), 
              aes(x = date, y = Malaria_prevalence, ymin = Malaria_prevalence_l, ymax = Malaria_prevalence_u),
-             fill = "aquamarine4", size = 0.75, shape = 21) +
-  geom_pointrange(data = subset(df_T, Net == "Pyrethroid_only"), 
+             fill = "darkgreen", size = 0.9, shape = 21) +
+  geom_pointrange(data = subset(df_T_prev, Net == "Pyrethroid_only"), 
              aes(x = date, y = Malaria_prevalence, ymin = Malaria_prevalence_l, ymax = Malaria_prevalence_u),
-             fill = "black", size = 0.75, shape = 21) +
-  scale_colour_manual(values = c("aquamarine4", "purple", "black"), name = "",
-                      labels = c("pyrethroid-pyrrole", "pyrethroid-PBO", "pyrethroid-only")) +
-  scale_fill_manual(values = c( "aquamarine4","purple", "black"), name = "",
-                    labels = c("pyrethroid-pyrrole", "pyrethroid-PBO", "pyrethroid-only")) +
+             fill = "blue", size = 0.9, shape = 21) +
+  scale_colour_manual(breaks = c("Pyrethroid_only", "PBO", "IG2"), values = c("blue", "aquamarine", "darkgreen"), name = "",
+                      labels = c("pyrethroid-only", "pyrethroid-PBO", "pyrethroid-pyrrole")) +
+  scale_fill_manual(breaks = c("Pyrethroid_only", "PBO", "IG2"), values = c("blue","aquamarine", "darkgreen"), name = "",
+                    labels = c("pyrethroid-only", "pyrethroid-PBO", "pyrethroid-pyrrole")) +
   xlab("Year") +
   ylab("Malaria prevalence in children\naged 0.5 to 14 years old") +
-  coord_cartesian(xlim = c(baseline_start_date_B - 365, baseline_start_date_B + 365*5)) +
+  coord_cartesian(xlim = c(baseline_start_date_T - 365/2, intervention_date_T + 365*3),
+                  ylim = c(0, 0.7)) +
   theme_classic() +
-  ggtitle("Tanzania") +
-  theme(text = element_text(size = 17)) +
-  scale_y_continuous(labels = scales::percent, limits = c(0, 1), breaks = seq(0, 1, 0.2))
+  ggtitle("Tanzania trial arms") +
+  theme(text = element_text(size = 20),
+        axis.text = element_text(size = 17),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size=14),
+        legend.background = element_blank(),
+        legend.position = c(0.85, 0.95)) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1), breaks = seq(0, 0.7, 0.1))
 
-B_arm_plot <- ggplot(data = arm_sims_B) +
+df_B_prev <- na.omit(df_B[,c("Net", "date", "Malaria_prevalence", "Malaria_prevalence_l", "Malaria_prevalence_u", "Location")])
+
+B_arm_plot <- ggplot() +
   geom_vline(xintercept = intervention_date_B, linetype = 2, linewidth = 1, alpha = 0.5) +
-  geom_ribbon(aes(x = date, ymin = lower, ymax = upper, fill = net), alpha = 0.25) +
-  geom_line(aes(x = date, y = prev, col = net)) +
+  geom_ribbon(data = arm_sims_B, 
+              aes(x = date, ymin = upper, ymax = lower, fill = net, group = net), 
+              alpha = 0.4) +
+  geom_line(data = arm_sims_B,
+            aes(x = date, y = prev, col = net), linewidth = 1) +
   # geom_point(data = subset(df_B, Location == "Cove"), 
   #            aes(x = date, y = Malaria_prevalence),
   #            fill = "skyblue", size = 3.5, shape = 21) +
-  geom_pointrange(data = subset(df_B, Location == "Zagnanado"), 
+  geom_pointrange(data = subset(df_B_prev, Location == "Zagnanado"), 
                   aes(x = date, y = Malaria_prevalence, ymin = Malaria_prevalence_l, ymax = Malaria_prevalence_u),
-                  fill = "aquamarine4", size = 0.75, shape = 22) +
-  geom_pointrange(data = subset(df_B, Location == "Ouinhi"), 
+                  fill = "darkgreen", size = 0.9, shape = 22) +
+  geom_pointrange(data = subset(df_B_prev, Location == "Ouinhi"), 
                   aes(x = date, y = Malaria_prevalence, ymin = Malaria_prevalence_l, ymax = Malaria_prevalence_u),
-                  fill = "black", size = 0.75, shape = 22) +
-  scale_colour_manual(values = c("aquamarine4", "black"), name = "") +
-  scale_fill_manual(values = c("aquamarine4", "black"), name = "") +
+                  fill = "blue", size = 0.9, shape = 22) +
+  scale_colour_manual(values = c("blue", "darkgreen"), name = "", breaks = c("Pyrethroid_only", "IG2"),
+                      labels = c("pyrethroid-only", "pyrethroid-pyrrole")) +
+  scale_fill_manual(values = c("blue", "darkgreen"), name = "", breaks = c("Pyrethroid_only", "IG2"),
+                    labels = c("pyrethroid-only", "pyrethroid-pyrrole")) +
   xlab("Year") +
   ylab("Malaria prevalence in\npeople of all ages") +
-  coord_cartesian(xlim = c(baseline_start_date_B - 365, baseline_start_date_B + 365*3)) +
+  coord_cartesian(xlim = c(baseline_start_date_B - 365/2, intervention_date_B + 365*3),
+                  ylim = c(0, 0.7)) +
   theme_classic() +
-  ggtitle("Benin") +
-  theme(text = element_text(size = 17)) +
-  scale_y_continuous(labels = scales::percent, limits = c(0, 1), breaks = seq(0, 1, 0.2))
+  ggtitle("Benin trial arms") +
+  theme(text = element_text(size = 20),
+        axis.text = element_text(size = 17),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size=14),
+        legend.background = element_blank(),
+        legend.position = c(0.85, 0.95)) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1), breaks = seq(0, 0.7, 0.1))
 
 # pyrethroid-pyrrole arms with pyrethroid-pyrrole top up nets
+
+# rbind(extract_prev(Net_in = "IG2", int_Net_in = "IG2", 
+#                    Country_in = "Tanzania",
+#                    vals_pred = T_vals_pred,
+#                    
+#                    pred_prev = pred_prev_T) %>% mutate(net = "IG2"),
+#       
+#       extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
+#                         Country_in = "Tanzania",
+#                         vals_pred = T_vals_pred_tu, 
+#                         pred_prev = pred_prev_T_tu) %>% mutate(net = "IG2_tu"),
+#       
+#       extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
+#                         Country_in = "Tanzania",
+#                         vals_pred = T_vals_pred_tu_none, 
+#                         pred_prev = pred_prev_T_tu_none,
+#                         trial_net_cov_in = NA) %>% mutate(net = "IG2_tu_none"),
+#       
+#       extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
+#                         Country_in = "Tanzania",
+#                         vals_pred = T_vals_pred_tu_none, 
+#                         pred_prev = pred_prev_T_tu_none,
+#                         trial_net_cov_in = 0) %>% mutate(net = "None")
+# )
+
 T_tu_df <- data.frame("t" = rep(pred_prev_T[[1]]$timestep, 3),
-                      "date" = rep(pred_prev_T[[1]]$date, 3),
-                      "net" = c(rep("IG2", sim_length),
-                                rep("IG2_tu", sim_length),
-                                rep("Pyrethroid_cf", sim_length)),
-                      "prev" = c(extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                   Country_in = "Tanzania", bioassay_uncertainty = "middle",
-                                                   vals_pred = T_vals_pred, pred_prev = pred_prev_T),
-                                 
-                                 extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                   Country_in = "Tanzania", bioassay_uncertainty = "middle",
-                                                   vals_pred = T_vals_pred_tu, pred_prev = pred_prev_T_tu,
-                                                   top_up_net = "IG2"),
-                                 
-                                 extract_mean_prev(Net_in = "IG2", int_Net_in = "Pyrethroid_only", 
-                                                   Country_in = "Tanzania", bioassay_uncertainty = "middle",
-                                                   vals_pred = T_vals_pred, pred_prev = pred_prev_T)
-                      ),
-                      "lower" = c(extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                    Country_in = "Tanzania", bioassay_uncertainty = "lower",
-                                                    vals_pred = T_vals_pred, pred_prev = pred_prev_T),
-                                  
-                                  extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                    Country_in = "Tanzania", bioassay_uncertainty = "lower",
-                                                    vals_pred = T_vals_pred_tu, pred_prev = pred_prev_T_tu,
-                                                    top_up_net = "IG2"),
-                                  
-                                  extract_mean_prev(Net_in = "IG2", int_Net_in = "Pyrethroid_only", 
-                                                    Country_in = "Tanzania", bioassay_uncertainty = "lower",
-                                                    vals_pred = T_vals_pred, pred_prev = pred_prev_T)
-                      ),
-                      "upper" = c(extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                    Country_in = "Tanzania", bioassay_uncertainty = "upper",
-                                                    vals_pred = T_vals_pred, pred_prev = pred_prev_T),
-                                  
-                                  extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                    Country_in = "Tanzania", bioassay_uncertainty = "upper",
-                                                    vals_pred = T_vals_pred_tu, pred_prev = pred_prev_T_tu,
-                                                    top_up_net = "IG2"),
-                                  
-                                  extract_mean_prev(Net_in = "IG2", int_Net_in = "Pyrethroid_only", 
-                                                    Country_in = "Tanzania", bioassay_uncertainty = "upper",
-                                                    vals_pred = T_vals_pred, pred_prev = pred_prev_T)
-                      )
+                                    "date" = rep(pred_prev_T[[1]]$date, 3),
+                                    "net" = c(rep("IG2", sim_length),
+                                              rep("IG2_tu", sim_length),
+                                              rep("None", sim_length)),
+                                    
+                                    "prev" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                            Country_in = "Tanzania", bioassay_uncertainty = "middle",
+                                                            vals_pred = T_vals_pred, pred_prev = pred_prev_T),
+                                               
+                                               extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                            Country_in = "Tanzania", bioassay_uncertainty = "middle",
+                                                            vals_pred = T_vals_pred_tu, pred_prev = pred_prev_T_tu),
+                                               
+                                               extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                            Country_in = "Tanzania", bioassay_uncertainty = "middle",
+                                                            vals_pred = T_vals_pred_tu_none, pred_prev = pred_prev_T_tu_none,
+                                                            trial_net_cov_in = 0)
+                                    ),
+                                    
+                                    "lower" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                             Country_in = "Tanzania", bioassay_uncertainty = "lower",
+                                                             vals_pred = T_vals_pred, pred_prev = pred_prev_T),
+                                                
+                                                extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                             Country_in = "Tanzania", bioassay_uncertainty = "lower",
+                                                             vals_pred = T_vals_pred_tu, pred_prev = pred_prev_T_tu),
+                                                
+                                                extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                             Country_in = "Tanzania", bioassay_uncertainty = "lower",
+                                                             vals_pred = T_vals_pred_tu_none, pred_prev = pred_prev_T_tu_none,
+                                                             trial_net_cov_in = 0)
+                                    ),
+                                    
+                                    "upper" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                             Country_in = "Tanzania", bioassay_uncertainty = "upper",
+                                                             vals_pred = T_vals_pred, pred_prev = pred_prev_T),
+                                                
+                                                extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                             Country_in = "Tanzania", bioassay_uncertainty = "upper",
+                                                             vals_pred = T_vals_pred_tu, pred_prev = pred_prev_T_tu),
+                                                
+                                                extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                             Country_in = "Tanzania", bioassay_uncertainty = "upper",
+                                                             vals_pred = T_vals_pred_tu_none, pred_prev = pred_prev_T_tu_none,
+                                                             trial_net_cov_in = 0)
+                                    )
 )
 
-ggplot(data = T_tu_df, 
-       aes(x = date, y = prev, ymin = lower, ymax = upper, fill = net)) +
-  geom_ribbon(alpha = 0.25) +
-  geom_line(aes(col = net)) +
-  coord_cartesian(xlim = c(baseline_start_date_B - 365, baseline_start_date_B + 365*5))
-
-# pyrethroid-pyrrole arms with pyrethroid-pyrrole top up nets
 B_tu_df <- data.frame("t" = rep(pred_prev_B[[1]]$timestep, 3),
                       "date" = rep(pred_prev_B[[1]]$date, 3),
                       "net" = c(rep("IG2", sim_length),
                                 rep("IG2_tu", sim_length),
-                                rep("Pyrethroid_cf", sim_length)),
-                      "prev" = c(extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                   Country_in = "Benin", bioassay_uncertainty = "middle",
-                                                   vals_pred = B_vals_pred, pred_prev = pred_prev_B),
+                                rep("None", sim_length)),
+                      
+                      "prev" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                              Country_in = "Benin", bioassay_uncertainty = "middle",
+                                              vals_pred = B_vals_pred, pred_prev = pred_prev_B),
                                  
-                                 extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                   Country_in = "Benin", bioassay_uncertainty = "middle",
-                                                   vals_pred = B_vals_pred_tu, pred_prev = pred_prev_B_tu,
-                                                   top_up_net = "IG2"),
+                                 extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                              Country_in = "Benin", bioassay_uncertainty = "middle",
+                                              vals_pred = B_vals_pred_tu, pred_prev = pred_prev_B_tu),
                                  
-                                 extract_mean_prev(Net_in = "IG2", int_Net_in = "Pyrethroid_only", 
-                                                   Country_in = "Benin", bioassay_uncertainty = "middle",
-                                                   vals_pred = B_vals_pred, pred_prev = pred_prev_B)
+                                 extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                              Country_in = "Benin", bioassay_uncertainty = "middle",
+                                              vals_pred = B_vals_pred_tu_none, pred_prev = pred_prev_B_tu_none,
+                                              trial_net_cov_in = 0)
                       ),
-                      "lower" = c(extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                    Country_in = "Benin", bioassay_uncertainty = "lower",
-                                                    vals_pred = B_vals_pred, pred_prev = pred_prev_B),
+                      
+                      "lower" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                               Country_in = "Benin", bioassay_uncertainty = "lower",
+                                               vals_pred = B_vals_pred, pred_prev = pred_prev_B),
                                   
-                                  extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                    Country_in = "Benin", bioassay_uncertainty = "lower",
-                                                    vals_pred = B_vals_pred_tu, pred_prev = pred_prev_B_tu,
-                                                    top_up_net = "IG2"),
+                                  extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                               Country_in = "Benin", bioassay_uncertainty = "lower",
+                                               vals_pred = B_vals_pred_tu, pred_prev = pred_prev_B_tu),
                                   
-                                  extract_mean_prev(Net_in = "IG2", int_Net_in = "Pyrethroid_only", 
-                                                    Country_in = "Benin", bioassay_uncertainty = "lower",
-                                                    vals_pred = B_vals_pred, pred_prev = pred_prev_B)
+                                  extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                               Country_in = "Benin", bioassay_uncertainty = "lower",
+                                               vals_pred = B_vals_pred_tu_none, pred_prev = pred_prev_B_tu_none,
+                                               trial_net_cov_in = 0)
                       ),
-                      "upper" = c(extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                    Country_in = "Benin", bioassay_uncertainty = "upper",
-                                                    vals_pred = B_vals_pred, pred_prev = pred_prev_B),
+                      
+                      "upper" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                               Country_in = "Benin", bioassay_uncertainty = "upper",
+                                               vals_pred = B_vals_pred, pred_prev = pred_prev_B),
                                   
-                                  extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
-                                                    Country_in = "Benin", bioassay_uncertainty = "upper",
-                                                    vals_pred = B_vals_pred_tu, pred_prev = pred_prev_B_tu,
-                                                    top_up_net = "IG2"),
+                                  extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                               Country_in = "Benin", bioassay_uncertainty = "upper",
+                                               vals_pred = B_vals_pred_tu, pred_prev = pred_prev_B_tu),
                                   
-                                  extract_mean_prev(Net_in = "IG2", int_Net_in = "Pyrethroid_only", 
-                                                    Country_in = "Benin", bioassay_uncertainty = "upper",
-                                                    vals_pred = B_vals_pred, pred_prev = pred_prev_B)
+                                  extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                               Country_in = "Benin", bioassay_uncertainty = "upper",
+                                               vals_pred = B_vals_pred_tu_none, pred_prev = pred_prev_B_tu_none,
+                                               trial_net_cov_in = 0)
                       )
 )
 
-ggplot(data = B_tu_df, 
-       aes(x = date, y = prev, ymin = lower, ymax = upper, fill = net)) +
-  geom_ribbon(alpha = 0.25) +
-  geom_line(aes(col = net)) +
-  coord_cartesian(xlim = c(baseline_start_date_B - 365, baseline_start_date_B + 365*3))
+# rbind(extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
+#                                    Country_in = "Benin",
+#                                    vals_pred = B_vals_pred, 
+#                                    pred_prev = pred_prev_B) %>% mutate(net = "IG2"),
+#                  
+#                  extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
+#                                    Country_in = "Benin",
+#                                    vals_pred = B_vals_pred_tu, 
+#                                    pred_prev = pred_prev_B_tu) %>% mutate(net = "IG2_tu"),
+#                  
+#                  extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
+#                                    Country_in = "Benin",
+#                                    vals_pred = B_vals_pred_tu_none, 
+#                                    pred_prev = pred_prev_B_tu_none,
+#                                    trial_net_cov_in = NA) %>% mutate(net = "IG2_tu_none"),
+#                  
+#                  extract_mean_prev(Net_in = "IG2", int_Net_in = "IG2", 
+#                                    Country_in = "Benin",
+#                                    vals_pred = B_vals_pred_tu_none, 
+#                                    pred_prev = pred_prev_B_tu_none,
+#                                    trial_net_cov_in = 0) %>% mutate(net = "None")
+# )
 
-# actual vs fitted plot
+cf_plot_T <- ggplot() +
+  geom_ribbon(data = subset(T_tu_df, date <= intervention_date_T),
+            aes(x = date, ymin = upper, ymax = lower, fill = net, group = net),
+            alpha = 0.1) +
+  
+  geom_line(data = subset(T_tu_df, date <= intervention_date_T),
+            aes(x = date, y = prev, col = net, group = net),
+            alpha = 0.1, linewidth = 0.2) +
+  
+  geom_ribbon(data = subset(T_tu_df, date >= intervention_date_T),
+            aes(x = date, ymin = upper, ymax = lower, fill = net, group = net),
+            alpha = 0.4) +
+  
+  geom_line(data = subset(T_tu_df, date >= intervention_date_T),
+            aes(x = date, y = prev, col = net, group = net),
+            linewidth = 1) +
+  coord_cartesian(xlim = c(intervention_date_T - 27, intervention_date_T + 365*3),
+                  ylim = c(0, 0.7)) +
+  geom_vline(xintercept = intervention_date_T, linetype = 2, linewidth = 1, alpha = 0.5) +
+  xlab("Year") +
+  ylab("Malaria prevalence in children\naged 0.5 to 14 years old") +
+  theme_classic() +
+  ggtitle("Tanzania counterfactual") +
+  theme(text = element_text(size = 20),
+        axis.text = element_text(size = 17),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size=14),
+        legend.background = element_blank(),
+        legend.position = c(0.8, 0.15)) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1), breaks = seq(0, 1, 0.1)) +
+  scale_x_date(expand = c(0, 0)) +
+  scale_colour_manual(labels = c("No trial nets added",
+                                 "Trial nets replaced\nwith pyrethroid-only nets",
+                                 "Trial nets replaced\nwith trial nets"
+                                 ), 
+                      values = c("black", "darkgreen", "skyblue"),
+                      name = "",
+                      breaks = c("None", "IG2", "IG2_tu")) +
+  scale_fill_manual(labels = c("No trial nets added",
+                                 "Trial nets replaced\nwith pyrethroid-only nets",
+                                 "Trial nets replaced\nwith trial nets"
+  ), 
+  values = c("black", "darkgreen", "skyblue"),
+  name = "",
+  breaks = c("None", "IG2", "IG2_tu"))
+ 
+
+cf_plot_B <- ggplot() +
+  geom_ribbon(data = subset(B_tu_df, date <= intervention_date_B),
+              aes(x = date, ymin = upper, ymax = lower, fill = net, group = net),
+              alpha = 0.1) +
+  
+  geom_line(data = subset(B_tu_df, date <= intervention_date_B),
+            aes(x = date, y = prev, col = net, group = net),
+            alpha = 0.1, linewidth = 0.2) +
+  
+  geom_ribbon(data = subset(B_tu_df, date >= intervention_date_B),
+              aes(x = date, ymin = upper, ymax = lower, fill = net, group = net),
+              alpha = 0.4) +
+  
+  geom_line(data = subset(B_tu_df, date >= intervention_date_B),
+            aes(x = date, y = prev, col = net, group = net),
+            linewidth = 1) +
+  
+  coord_cartesian(xlim = c(intervention_date_B - 20, intervention_date_B + 365*3),
+                  ylim = c(0, 0.7)) +
+  geom_vline(xintercept = intervention_date_B, linetype = 2, linewidth = 1, alpha = 0.5) +
+  xlab("Year") +
+  ylab("Malaria prevalence in\npeople of all ages") +
+  theme_classic() +
+  ggtitle("Benin counterfactual") +
+  theme(text = element_text(size = 20),
+        axis.text = element_text(size = 17),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size=14),
+        legend.background = element_blank(),
+        legend.position = c(0.8, 0.85)) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1), breaks = seq(0, 1, 0.1)) +
+  scale_x_date(expand = c(0, 0)) +
+  scale_colour_manual(labels = c("No trial nets added",
+                                 "Trial nets replaced\nwith pyrethroid-only nets",
+                                 "Trial nets replaced\nwith trial nets"
+  ), 
+  values = c("black", "darkgreen", "skyblue"),
+  name = "",
+  breaks = c("None", "IG2", "IG2_tu")) +
+  scale_fill_manual(labels = c("No trial nets added",
+                               "Trial nets replaced\nwith pyrethroid-only nets",
+                               "Trial nets replaced\nwith trial nets"
+  ), 
+  values = c("black", "darkgreen", "skyblue"),
+  name = "",
+  breaks = c("None", "IG2", "IG2_tu"))
+  
+  
+# ggplot() +
+#   geom_line(data = subset(B_tu_df, rep != "mean" & date <= intervention_date_B), 
+#             aes(x = date, y = prev, col = net, group = interaction(net, rep)),
+#             alpha = 0.2, linewidth = 0.2) +
+#   
+#   geom_line(data = subset(B_tu_df, rep != "mean" & date >= intervention_date_B), 
+#             aes(x = date, y = prev, col = net, group = interaction(net, rep)),
+#             alpha = 0.4, linewidth = 0.2) +
+#   
+#   geom_line(data = subset(B_tu_df, rep == "mean" & date >= intervention_date_B),
+#             aes(x = date, y = prev, col = net, group = interaction(net, rep)),
+#             linewidth = 0.75) +
+#   coord_cartesian(xlim = c(intervention_date_B - 365/20, intervention_date_B + 365*3),
+#                   ylim = c(0, 0.7)) +
+#   geom_vline(xintercept = intervention_date_B, linetype = 2, linewidth = 1, alpha = 0.5) +
+#   xlab("Year") +
+#   ylab("Malaria prevalence in\npeople of all ages") +
+#   theme_classic() +
+#   ggtitle("Benin counterfactual") +
+#   theme(text = element_text(size = 17)) +
+#   scale_y_continuous(labels = scales::percent, limits = c(0, 1), breaks = seq(0, 1, 0.1)) +
+#   scale_colour_manual(labels = c("No trial nets added",
+#                                  "Trial nets not replaced",
+#                                  "Trial nets replaced\nwith pyrethroid-only nets",
+#                                  "Trial nets replaced\nwith trial nets"
+#   ), 
+#   values = c("black", "grey", "darkgreen", "skyblue"),
+#   name = "",
+#   breaks = c("None", "IG2_tu_none", "IG2", "IG2_tu"))
+
+
+##### actual vs fitted plot #####
+
+af_arm_sims_T_tu <- data.frame("t" = rep(pred_prev_T[[1]]$timestep, 3),
+                            "date" = rep(pred_prev_T[[1]]$date, 3),
+                            "net" = c(rep("IG2", sim_length),
+                                      rep("PBO", sim_length),
+                                      rep("Pyrethroid_only", sim_length)),
+                            "prev" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                                   Country_in = "Tanzania", bioassay_uncertainty = "middle",
+                                                                   vals_pred = T_vals_pred_tu, pred_prev = pred_prev_T_tu),
+                                                      
+                                                      extract_prev(Net_in = "PBO", int_Net_in = "PBO",
+                                                                   Country_in = "Tanzania", bioassay_uncertainty = "middle",
+                                                                   vals_pred = T_vals_pred_tu, pred_prev = pred_prev_T_tu),
+                                                      
+                                                      extract_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                                                   Country_in = "Tanzania", bioassay_uncertainty = "middle",
+                                                                   vals_pred = T_vals_pred_tu, pred_prev = pred_prev_T_tu)
+                                        ),
+                                        
+                                        "lower" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                                 Country_in = "Tanzania", bioassay_uncertainty = "lower",
+                                                                 vals_pred = T_vals_pred_tu, pred_prev = pred_prev_T_tu),
+                                                    
+                                                    extract_prev(Net_in = "PBO", int_Net_in = "PBO",
+                                                                 Country_in = "Tanzania", bioassay_uncertainty = "lower",
+                                                                 vals_pred = T_vals_pred_tu, pred_prev = pred_prev_T_tu),
+                                                    
+                                                    extract_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                                                 Country_in = "Tanzania", bioassay_uncertainty = "lower",
+                                                                 vals_pred = T_vals_pred_tu, pred_prev = pred_prev_T_tu)
+                                        ),
+                                        
+                                        "upper" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                                 Country_in = "Tanzania", bioassay_uncertainty = "upper",
+                                                                 vals_pred = T_vals_pred_tu, pred_prev = pred_prev_T_tu),
+                                                    
+                                                    extract_prev(Net_in = "PBO", int_Net_in = "PBO",
+                                                                 Country_in = "Tanzania", bioassay_uncertainty = "upper",
+                                                                 vals_pred = T_vals_pred_tu, pred_prev = pred_prev_T_tu),
+                                                    
+                                                    extract_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                                                 Country_in = "Tanzania", bioassay_uncertainty = "upper",
+                                                                 vals_pred = T_vals_pred_tu, pred_prev = pred_prev_T_tu)
+                                        )
+)
+                                        
+af_arm_sims_B_tu <- data.frame("t" = rep(pred_prev_B[[1]]$timestep, 2),
+                            "date" = rep(pred_prev_B[[1]]$date, 2),
+                            "net" = c(rep("IG2", sim_length),
+                                      rep("Pyrethroid_only", sim_length)),
+                            "prev" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                    Country_in = "Benin", bioassay_uncertainty = "middle",
+                                                    vals_pred = B_vals_pred_tu, pred_prev = pred_prev_B_tu),
+                                       
+                                       extract_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                                    Country_in = "Benin", bioassay_uncertainty = "middle",
+                                                    vals_pred = B_vals_pred_tu, pred_prev = pred_prev_B_tu)
+                            ),
+                            "lower" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                     Country_in = "Benin", bioassay_uncertainty = "lower",
+                                                     vals_pred = B_vals_pred_tu, pred_prev = pred_prev_B_tu),
+                                        
+                                        extract_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                                     Country_in = "Benin", bioassay_uncertainty = "lower",
+                                                     vals_pred = B_vals_pred_tu, pred_prev = pred_prev_B_tu)
+                            ),
+                            "upper" = c(extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                     Country_in = "Benin", bioassay_uncertainty = "upper",
+                                                     vals_pred = B_vals_pred_tu, pred_prev = pred_prev_B_tu),
+                                        
+                                        extract_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                                     Country_in = "Benin", bioassay_uncertainty = "upper",
+                                                     vals_pred = B_vals_pred_tu, pred_prev = pred_prev_B_tu)
+                            )
+)
+
 inds_T <- match(interaction(df_T$date, df_T$Net), interaction(arm_sims_T$date, arm_sims_T$net))
 
-df_T <- df_T %>% mutate(pred_prev = arm_sims_T[inds_T, "prev"],
-                        pred_prev_l = arm_sims_T[inds_T, "lower"],
-                        pred_prev_u = arm_sims_T[inds_T, "upper"])
+inds_T_tu <- match(interaction(df_T$date, df_T$Net), interaction(af_arm_sims_T_tu$date, af_arm_sims_T_tu$net))
+
+df_T <- as.data.frame(df_T) %>% mutate(pred_prev = arm_sims_T[inds_T, "prev"],
+                                       pred_prev_l = arm_sims_T[inds_T, "lower"],
+                                       pred_prev_u = arm_sims_T[inds_T, "upper"],
+                                       pred_prev_cf = af_arm_sims_T_tu[inds_T_tu, "prev"],
+                                       pred_prev_l_cf = af_arm_sims_T_tu[inds_T_tu, "lower"],
+                                       pred_prev_u_cf = af_arm_sims_T_tu[inds_T_tu, "upper"])
 
 inds_B <- match(interaction(df_B$date, df_B$Net), interaction(arm_sims_B$date, arm_sims_B$net))
 
-df_B <- df_B %>% mutate(pred_prev = arm_sims_B[inds_B, "prev"],
-                        pred_prev_l = arm_sims_B[inds_B, "lower"],
-                        pred_prev_u = arm_sims_B[inds_B, "upper"])
+inds_B_tu <- match(interaction(df_B$date, df_B$Net), interaction(af_arm_sims_B_tu$date, af_arm_sims_B_tu$net))
+
+df_B <- as.data.frame(df_B) %>% mutate(pred_prev = arm_sims_B[inds_B, "prev"],
+                                       pred_prev_l = arm_sims_B[inds_B, "lower"],
+                                       pred_prev_u = arm_sims_B[inds_B, "upper"],
+                                       pred_prev_cf = af_arm_sims_B_tu[inds_B_tu, "prev"],
+                                       pred_prev_l_cf = af_arm_sims_B_tu[inds_B_tu, "lower"],
+                                       pred_prev_u_cf = af_arm_sims_B_tu[inds_B_tu, "upper"])
 
 df_af <- rbind(df_T[, c("Net", "Country", "date", "Malaria_prevalence", "Malaria_prevalence_u", 
                         "Malaria_prevalence_l", "pred_prev", "pred_prev_l", "pred_prev_u")], 
@@ -1502,24 +1853,252 @@ df_af <- df_af[is.na(df_af$Malaria_prevalence)!=1, ]
 
 af_plot <- ggplot(data = subset(df_af, !(date %in% c(baseline_start_date_B,
                                                      baseline_start_date_T)) & Net != "RG")) +
-  geom_abline(slope = 1, linetype = 2, linewidth = 0.75, alpha = 0.4) +
-  #geom_smooth(formula = y ~ x, se = FALSE, aes(x = Malaria_prevalence, y = pred_prev),
-  #            method = "lm", col = "grey50", fullrange = TRUE, alpha = 0.8) +
-  geom_pointrange(size = 0.75, 
-                  aes(x = Malaria_prevalence, y = pred_prev, ymin = pred_prev_l, ymax = pred_prev_u, col = Net, shape = Country)) +
+  geom_abline(slope = 1, linetype = 2, linewidth = 1.1) +
+  # geom_smooth(formula = y ~ x-1, se = TRUE, aes(x = Malaria_prevalence, y = pred_prev),
+  #              method = "lm", col = "grey50", fullrange = TRUE, alpha = 0.1) +
+  geom_pointrange(size = 1, 
+                  aes(x = Malaria_prevalence, y = pred_prev, ymin = pred_prev_u, ymax = pred_prev_l, col = Net, shape = Country)) +
   geom_errorbarh(aes(y = pred_prev, xmin = Malaria_prevalence_l, xmax = Malaria_prevalence_u, col = Net, group = Country)) +
-  theme_classic() + theme(text = element_text(size = 18)) +
-  scale_colour_manual(values = c("aquamarine4", "purple", "black"),
-                      labels = c("pyrethroid-pyrrole", "pyrethroid-PBO", "pyrethroid-only")) +
+  theme_classic() + 
+  theme(text = element_text(size = 20),
+        axis.text = element_text(size = 17),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size=14),
+        legend.background = element_blank(),
+        legend.position = c(0.85, 0.2),
+        legend.box.background = element_rect(colour = "black")) +
+  scale_colour_manual(values = c("blue", "aquamarine", "darkgreen"),
+                      labels = c("pyrethroid-only", "pyrethroid-PBO", "pyrethroid-pyrrole"),
+                      breaks =c("Pyrethroid_only", "PBO", "IG2")) +
   scale_shape_manual(values = c(15, 16)) +
   ylab("Predicted malaria prevalence") + xlab("Observed malaria prevalence") +
-  scale_x_continuous(limits = c(0, 1), labels = scales::percent, breaks = seq(0, 1, 0.2)) +
-  scale_y_continuous(limits = c(0, 1), labels = scales::percent, breaks = seq(0, 1, 0.2))
+  scale_x_continuous(limits = c(0, 1), labels = scales::percent, breaks = seq(0, 1, 0.1)) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent, breaks = seq(0, 1, 0.1)) +
+  coord_cartesian(xlim = c(0, 0.7), ylim = c(0, 0.7))
+
+
+
+
+##### extracting the results #####
+
+calc_incidence <- function(output, s_date, e_date, min_age, max_age){
+  s_time <- which(output$date == s_date)
+  e_time <- which(output$date == e_date)
+  return(output[s_time:e_time,paste0("n_inc_clinical_",min_age,"_",max_age)]/
+           output[s_time:e_time, paste0("n_", min_age,"_", max_age)])
+}
+
+extract_inc <- function(Net_in, 
+                        int_Net_in,
+                        bioassay_uncertainty,
+                        vals_pred, 
+                        pred_prev,
+                        top_up_net = NA,
+                        n_rep = 3,
+                        s_date = intervention_date_T, 
+                        e_date = intervention_date_T + 365,
+                        min_age = 0.5*365,
+                        max_age = 10*365){
+  
+  #p <- if(bioassay_uncertainty == "middle"){0.5} else if(bioassay_uncertainty == "lower"){0.025} else{0.975}
+  
+  inds <- if(is.na(top_up_net) == 1){
+    which(vals_pred$Net_in == Net_in & 
+            vals_pred$int_Net_in == int_Net_in &
+            vals_pred$bioassay_uncertainty == bioassay_uncertainty)
+  } else{
+    which(vals_pred$Net_in == Net_in & 
+            vals_pred$int_Net_in == int_Net_in &
+            vals_pred$bioassay_uncertainty == bioassay_uncertainty &
+            vals_pred$top_up_net == top_up_net)
+  }
+  
+  if(length(inds) != n_rep){return(NA)}else{
+    
+    mat <- sapply(inds, function(i, p){calc_incidence(output = p[[i]],
+                                                     s_date = s_date, 
+                                                     e_date = e_date,
+                                                     min_age = min_age, 
+                                                     max_age = max_age)}, 
+                 p = pred_prev)
+  }
+  
+  if(nrow(mat)>1){
+    mat <- colSums(mat)
+  }
+    
+    return(mean(mat)) # incidence is per person
+}
+
+# calculate efficacy - put on a different plot
+# put grey points from previous paper - R2 with and without the new ones
+# R2 from the x=y line
+
+rel_reduction <- rbind(data.frame(s_times = rep(c(intervention_date_T, 
+                                            intervention_date_T + 365,
+                                            intervention_date_T),
+                                          2),
+                            e_times = rep(c(intervention_date_T + 365,
+                                            intervention_date_T + 365 * 2,
+                                            intervention_date_T + 365 * 2),
+                                          2),
+                            year = rep(c("Year 1", "Year 2", "Overall"), 2),
+                            net = sort(rep(c("Pyrethroid_only", "PBO", "IG2"), 3))
+) %>% rowwise() %>% 
+  mutate(p_only_m = extract_inc(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                bioassay_uncertainty = "middle",
+                                vals_pred = T_vals_pred,
+                                pred_prev = pred_prev_T,
+                                s_date = s_times,
+                                e_date = e_times),
+         p_only_l = extract_inc(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                bioassay_uncertainty = "lower",
+                                vals_pred = T_vals_pred,
+                                pred_prev = pred_prev_T,
+                                s_date = s_times,
+                                e_date = e_times),
+         p_only_u = extract_inc(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                bioassay_uncertainty = "upper",
+                                vals_pred = T_vals_pred,
+                                pred_prev = pred_prev_T,
+                                s_date = s_times,
+                                e_date = e_times),
+         t_net_m = extract_inc(Net_in = net, int_Net_in = net,
+                      bioassay_uncertainty = "middle",
+                      vals_pred = T_vals_pred,
+                      pred_prev = pred_prev_T,
+                      s_date = s_times,
+                      e_date = e_times),
+         t_net_l = extract_inc(Net_in = net, int_Net_in = net,
+                               bioassay_uncertainty = "lower",
+                               vals_pred = T_vals_pred,
+                               pred_prev = pred_prev_T,
+                               s_date = s_times,
+                               e_date = e_times),
+         t_net_u = extract_inc(Net_in = net, int_Net_in = net,
+                               bioassay_uncertainty = "upper",
+                               vals_pred = T_vals_pred,
+                               pred_prev = pred_prev_T,
+                               s_date = s_times,
+                               e_date = e_times),
+         
+         t_net_m = extract_inc(Net_in = net, int_Net_in = net,
+                               bioassay_uncertainty = "middle",
+                               vals_pred = T_vals_pred,
+                               pred_prev = pred_prev_T,
+                               s_date = s_times,
+                               e_date = e_times),
+         t_net_l = extract_inc(Net_in = net, int_Net_in = net,
+                               bioassay_uncertainty = "lower",
+                               vals_pred = T_vals_pred,
+                               pred_prev = pred_prev_T,
+                               s_date = s_times,
+                               e_date = e_times),
+         t_net_u = extract_inc(Net_in = net, int_Net_in = net,
+                               bioassay_uncertainty = "upper",
+                               vals_pred = T_vals_pred,
+                               pred_prev = pred_prev_T,
+                               s_date = s_times,
+                               e_date = e_times),
+         
+    Country = "Tanzania",
+    rr_m = (p_only_m - t_net_m)/p_only_m,
+    rr_l = (p_only_l - t_net_l)/p_only_l,
+    rr_u = (p_only_u - t_net_u)/p_only_u
+  ),
+
+data.frame(s_times = c(intervention_date_B, 
+                           intervention_date_B + 365,
+                           intervention_date_B),
+           e_times = c(intervention_date_B + 365,
+                           intervention_date_B + 365 * 2,
+                           intervention_date_B + 365 * 2),
+           year = c("Year 1", "Year 2", "Overall"),
+           net = rep("Pyrethroid_only", "IG2", 3)) %>% 
+  rowwise() %>% 
+  mutate(p_only_m = extract_inc(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                bioassay_uncertainty = "middle",
+                                vals_pred = B_vals_pred,
+                                pred_prev = pred_prev_B,
+                                s_date = s_times,
+                                e_date = e_times),
+         p_only_l = extract_inc(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                bioassay_uncertainty = "lower",
+                                vals_pred = B_vals_pred,
+                                pred_prev = pred_prev_B,
+                                s_date = s_times,
+                                e_date = e_times),
+         p_only_u = extract_inc(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                bioassay_uncertainty = "upper",
+                                vals_pred = B_vals_pred,
+                                pred_prev = pred_prev_B,
+                                s_date = s_times,
+                                e_date = e_times),
+         t_net_m = extract_inc(Net_in = net, int_Net_in = net,
+                               bioassay_uncertainty = "middle",
+                               vals_pred = B_vals_pred,
+                               pred_prev = pred_prev_B,
+                               s_date = s_times,
+                               e_date = e_times),
+         t_net_l = extract_inc(Net_in = net, int_Net_in = net,
+                               bioassay_uncertainty = "lower",
+                               vals_pred = B_vals_pred,
+                               pred_prev = pred_prev_B,
+                               s_date = s_times,
+                               e_date = e_times),
+         t_net_u = extract_inc(Net_in = net, int_Net_in = net,
+                               bioassay_uncertainty = "upper",
+                               vals_pred = B_vals_pred,
+                               pred_prev = pred_prev_B,
+                               s_date = s_times,
+                               e_date = e_times),
+         Country = "Benin",
+         rr_m = (p_only_m - t_net_m)/p_only_m,
+         rr_l = (p_only_l - t_net_l)/p_only_l,
+         rr_u = (p_only_u - t_net_u)/p_only_u
+  )
+
+)
+
+actual_inc <- read_xlsx("data/actual_incidence_estimates.xlsx") %>% mutate(rr_m = (Pyrethroid_only_incidence - Trial_incidence)/Pyrethroid_only_incidence,
+                                                                           sample = "observed")
+
+rel_reduction$Country <- factor(rel_reduction$Country, levels=c("Tanzania", "Benin"))
+actual_inc$Country <- factor(actual_inc$Country, levels=c("Tanzania", "Benin"))
+
+rr_plot <- ggplot(data = rbind(rel_reduction[,c("Country", "year", "rr_m", "net")] %>% mutate(sample = "predicted"),
+                    actual_inc[,c("Country", "year", "rr_m", "net", "sample")]) %>% rowwise() %>%  
+                    mutate(net = if(net == "IG2"){"pyrethroid-pyrrole"} else{"pyrethroid-PBO"}), 
+       aes(x = year, y = rr_m, fill = net,  group = interaction(net, sample))) + 
+  geom_bar_pattern(stat = "identity", 
+                   alpha = 0.4, 
+                   position = position_dodge(preserve = "single"),
+                   pattern_colour = "black",
+                   col = "black",
+                   aes(pattern = sample)) +
+  scale_pattern_manual(values = c(predicted = "circle", observed = "none"), name = "Sample") +
+  facet_wrap(~Country + net) +
+  xlab("Year post trial net distribution") + ylab("Efficacy (clinical incidence averted relative\nto the value in the pyrethroid-only arm)") +
+  theme_classic() + theme(text = element_text(size = 20),
+                          axis.text.y = element_text(size = 17),
+                          axis.text.x = element_text(size = 12.75),
+                          legend.text = element_text(size = 14),
+                          legend.title = element_text(size=14),
+                          legend.background = element_blank()) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_colour_manual(values = c("aquamarine", "darkgreen"), name = "Net") +
+  scale_fill_manual(values = c("aquamarine", "darkgreen"), name = "Net")
+
+png(file = "figures/model_simulations.png", height = 1100, width = 1800)
+
+(T_arm_plot | B_arm_plot | af_plot) / (rr_plot | cf_plot_T | cf_plot_B) +
+  plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(face = 'bold'))
+    
+dev.off()
 
 plot_grid(
 plot_grid(
   T_arm_plot + theme(legend.position = "none"),
-  
   B_arm_plot + 
     theme(legend.position = "none"),
   
@@ -1531,160 +2110,157 @@ plot_grid(af_plot,
   nrow = 1), nrow = 2
 )
 
+############################################
+##### extracting the prevalence values #####
+############################################
 
-  
-# calculate efficacy - put on a different plot
-# put grey points from previous paper - R2 with and without the new ones
-# R2 from the x=y line
+# extracting the values
 
-# Joe has measurement error
+inc_T <- data.frame(s_times = rep(c(intervention_date_T, 
+                                    intervention_date_T + 365,
+                                    intervention_date_T),
+                                  3),
+                    e_times = rep(c(intervention_date_T + 365,
+                                    intervention_date_T + 365 * 2,
+                                    intervention_date_T + 365 * 2),
+                                  3),
+                    net = sort(rep(c("Pyrethroid_only", "PBO", "IG2"), 3))
+) %>% rowwise() %>% 
+  mutate(inc = paste0(
+    round(extract_inc(Net_in = net, int_Net_in = net,
+                      bioassay_uncertainty = "middle",
+                      vals_pred = T_vals_pred,
+                      pred_prev = pred_prev_T,
+                      s_date = s_times,
+                      e_date = e_times), digits = 2),
+    " (", round(extract_inc(Net_in = net, int_Net_in = net,
+                            bioassay_uncertainty = "upper",
+                            vals_pred = T_vals_pred,
+                            pred_prev = pred_prev_T,
+                            s_date = s_times,
+                            e_date = e_times), digits = 2),
+    " - ",
+    round(extract_inc(Net_in = net, int_Net_in = net,
+                      bioassay_uncertainty = "lower",
+                      vals_pred = T_vals_pred,
+                      pred_prev = pred_prev_T,
+                      s_date = s_times,
+                      e_date = e_times), digits = 2)
+    , ")"),
+    
+    inc_tu = paste0(
+      round(extract_inc(Net_in = net, int_Net_in = net,
+                        bioassay_uncertainty = "middle",
+                        vals_pred = T_vals_pred_tu,
+                        pred_prev = pred_prev_T_tu,
+                        s_date = s_times,
+                        e_date = e_times), digits = 2),
+      " (", round(extract_inc(Net_in = net, int_Net_in = net,
+                              bioassay_uncertainty = "upper",
+                              vals_pred = T_vals_pred_tu,
+                              pred_prev = pred_prev_T_tu,
+                              s_date = s_times,
+                              e_date = e_times), digits = 2),
+      " - ",
+      round(extract_inc(Net_in = net, int_Net_in = net,
+                        bioassay_uncertainty = "lower",
+                        vals_pred = T_vals_pred_tu,
+                        pred_prev = pred_prev_T_tu,
+                        s_date = s_times,
+                        e_date = e_times), digits = 2)
+      , ")"),
+    Country = "Tanzania"
+  )
 
-# Counterfactuals
-# IG2
+inc_B <- data.frame(s_times = rep(c(intervention_date_B, 
+                                    intervention_date_B + 365,
+                                    intervention_date_B),
+                                  2),
+                    e_times = rep(c(intervention_date_B + 365,
+                                    intervention_date_B + 365 * 2,
+                                    intervention_date_B + 365 * 2),
+                                  2),
+                    net = sort(rep(c("Pyrethroid_only", "IG2"), 3))
+) %>% rowwise() %>% 
+  mutate(inc = paste0(
+    round(extract_inc(Net_in = net, int_Net_in = net,
+                      bioassay_uncertainty = "middle",
+                      vals_pred = B_vals_pred,
+                      pred_prev = pred_prev_B,
+                      s_date = s_times,
+                      e_date = e_times), digits = 2),
+    " (", round(extract_inc(Net_in = net, int_Net_in = net,
+                            bioassay_uncertainty = "upper",
+                            vals_pred = B_vals_pred,
+                            pred_prev = pred_prev_B,
+                            s_date = s_times,
+                            e_date = e_times), digits = 2),
+    " - ",
+    round(extract_inc(Net_in = net, int_Net_in = net,
+                      bioassay_uncertainty = "lower",
+                      vals_pred = B_vals_pred,
+                      pred_prev = pred_prev_B,
+                      s_date = s_times,
+                      e_date = e_times), digits = 2)
+    , ")"),
+    
+    inc_tu = paste0(
+      round(extract_inc(Net_in = net, int_Net_in = net,
+                        bioassay_uncertainty = "middle",
+                        vals_pred = B_vals_pred_tu,
+                        pred_prev = pred_prev_B_tu,
+                        s_date = s_times,
+                        e_date = e_times), digits = 2),
+      " (", round(extract_inc(Net_in = net, int_Net_in = net,
+                              bioassay_uncertainty = "upper",
+                              vals_pred = B_vals_pred_tu,
+                              pred_prev = pred_prev_B_tu,
+                              s_date = s_times,
+                              e_date = e_times), digits = 2),
+      " - ",
+      round(extract_inc(Net_in = net, int_Net_in = net,
+                        bioassay_uncertainty = "lower",
+                        vals_pred = B_vals_pred_tu,
+                        pred_prev = pred_prev_B_tu,
+                        s_date = s_times,
+                        e_date = e_times), digits = 2)
+      , ")"),
+    Country = "Benin"
+  )
 
-calc_incidence <- function(output, s_time, e_time){
-  sum(output$n_inc_clinical_0_36500[s_time:e_time]/output$n_0_36500[s_time:e_time])
-}
-
-p_only_1y <- calc_incidence(out_pyrethroid_only, intervention_time, intervention_time + 365)
-p_only_2y <- calc_incidence(out_pyrethroid_only, intervention_time, intervention_time + 365*2)
-ppf_1y <- calc_incidence(out_ppf, intervention_time, intervention_time + 365)
-ppf_2y <- calc_incidence(out_ppf, intervention_time, intervention_time + 365*2)
-pp_1y <- calc_incidence(out_IG2, intervention_time, intervention_time + 365)
-pp_2y <- calc_incidence(out_IG2, intervention_time, intervention_time + 365*2)
-
-rel_reduction <- rbind(data.frame(year = c("1", "2"),
-                                  ITN = c("pyrrole", "pyrrole"),
-                                  r = c(((p_only_1y - pp_1y)/p_only_1y)*100,
-                                        ((p_only_2y - pp_2y)/p_only_2y)*100
-                                  )),
-                       data.frame(year = c("1", "2"),
-                                  ITN = c("pyriproxyfen", "pyriproxyfen"),
-                                  r = c(((p_only_1y - ppf_1y)/p_only_1y)*100,
-                                        ((p_only_2y - ppf_2y)/p_only_2y)*100
-                                  ))
-)
-
-ggplot(data = rel_reduction,
-       aes(x = year, y = r, col = ITN)) +
-  geom_point(size = 3) + theme_classic() +
-  ylab("Relative reduction in incidence") + xlab("Year") +
-  scale_colour_manual(values = c("skyblue", "aquamarine4"),
-                      labels = c("Pyrethroid-pyriproxyfen", "Pyrethroid-pyrrole")) +
-  ggtitle("Benin") +
-  scale_y_continuous(breaks = seq(0, 100, 10), limits = c(0, 100)) +
-  theme(text = element_text(size = 18))
-
-write.csv(data.frame("t" = out_IG2$timestep,
-                     "date" = out_IG2$date,
-                     "RG" = summary_pfpr_0_100_all(pred_prev_B_RG[[2]]),
-                     "IG2" = summary_pfpr_0_100_all(pred_prev_B[[2]]),
-                     "pbo" = summary_pfpr_0_100_all(pred_prev_B[[5]]),
-                     "pyr" = summary_pfpr_0_100_all(pred_prev_B[[8]])),
-          file = "IG2_arm_cf.csv")
-
-ggplot(data = data.frame("t" = out_IG2$timestep,
-                         "date" = out_IG2$date,
-                         "RG" = summary_pfpr_0_100_all(pred_prev_B_RG[[2]]),
-                         "IG2" = summary_pfpr_0_100_all(pred_prev_B[[2]]),
-                         "pbo" = summary_pfpr_0_100_all(pred_prev_B[[5]]),
-                         "pyr" = summary_pfpr_0_100_all(pred_prev_B[[8]]))) +
-  geom_line(aes(x = date, y = IG2), col = "aquamarine4") +
-  geom_line(aes(x = date, y = RG), col = "skyblue") +
-  geom_line(aes(x = date, y = pbo), col = "purple") +
-  geom_line(aes(x = date, y = pyr)) + 
-  geom_point(data = subset(df_B, Location == "Zagnanado"), 
-             aes(x = date, y = Malaria_prevalence),
-             fill = "aquamarine4", size = 3.5, shape = 21) +
-  xlab("Year") +
-  ylab("Malaria prevalence in total population") +
-  coord_cartesian(xlim = c(baseline_start_date_B - 365, baseline_start_date_B + 365*3)) +
-  theme_classic() + ylim(0, 1)
-
-#pyrethroid_only
-write.csv(data.frame("t" = out_IG2$timestep,
-                     "date" = out_IG2$date,
-                     "RG" = summary_pfpr_0_100_all(pred_prev_B_RG[[3]]),
-                     "IG2" = summary_pfpr_0_100_all(pred_prev_B[[3]]),
-                     "pbo" = summary_pfpr_0_100_all(pred_prev_B[[6]]),
-                     "pyr" = summary_pfpr_0_100_all(pred_prev_B[[9]])),
-          file = "p_only_arm_cf.csv")
-
-ggplot(data = data.frame("t" = out_IG2$timestep,
-                         "date" = out_IG2$date,
-                         "RG" = summary_pfpr_0_100_all(pred_prev_B_RG[[3]]),
-                         "IG2" = summary_pfpr_0_100_all(pred_prev_B[[3]]),
-                         "pbo" = summary_pfpr_0_100_all(pred_prev_B[[6]]),
-                         "pyr" = summary_pfpr_0_100_all(pred_prev_B[[9]]))) +
-  geom_line(aes(x = date, y = IG2), col = "aquamarine4") +
-  geom_line(aes(x = date, y = RG), col = "skyblue") +
-  geom_line(aes(x = date, y = pbo), col = "purple") +
-  geom_line(aes(x = date, y = pyr)) +
-  geom_point(data = subset(df_B, Location == "Ouinhi"), 
-             aes(x = date, y = Malaria_prevalence),
-             fill = "black", size = 3.5, shape = 21) +
-  ylab("Malaria prevalence in total population") +
-  coord_cartesian(xlim = c(baseline_start_date_B - 365, baseline_start_date_B + 365*3)) +
-  theme_classic() + ylim(0, 1)
-
-# RG
-
-write.csv(data.frame("t" = out_IG2$timestep,
-                     "date" = out_IG2$date,
-                     "RG" = summary_pfpr_0_100_all(pred_prev_B_RG[[1]]),
-                     "IG2" = summary_pfpr_0_100_all(pred_prev_B[[1]]),
-                     "pbo" = summary_pfpr_0_100_all(pred_prev_B[[4]]),
-                     "pyr" = summary_pfpr_0_100_all(pred_prev_B[[7]])),
-          file = "RG_arm_cf.csv")
-
-saveRDS(out_IG2, file = "out_IG2_B.rds")
-saveRDS(out_ppf, file = "out_ppf_B.rds")
-saveRDS(out_pyrethroid_only, file = "out_pyrethroid_only_B.rds")
-
-pred_times <- unique(c(df$Time_months, 36)*30) + int_time
-pred_times[1] <- pred_times[1] - 1
-
-pred_indices <- which(out_IG2$timestep %in% pred_times)
-
-round(summary_pfpr_0_100(out_IG2)[pred_indices], digits = 2)
-
-round(summary_pfpr_0_100(out_pyrethroid_only)[pred_indices], digits = 2)
-
-ggplot(data = data.frame("t" = out_pyrethroid_only$timestep,
-                         "prev" = summary_pfpr_0_100(out_pyrethroid_only))) +
-  geom_line(aes(x = t, y = prev)) +
-  geom_point(data = subset(df, Net == "Pyrethroid_only"), 
-             aes(x = Time_months * 30 + int_time - 1, y = Malaria_prevalence),
-             col = "skyblue", size = 3.5) +
-  theme_bw() + 
-  xlab("Days") +
-  ylab("Malaria prevalence in total population") +
-  coord_cartesian(xlim = c(int_time - 365, sim_length))
-
-df <- subset(df, Country == "Benin")
-
-ggplot(data = data.frame("t" = out_IG2$timestep,
-                         "n_use" = out_IG2$n_use_net/10000)) +
-  geom_line(aes(x = t, y = n_use)) +
-  theme_bw() +
-  geom_hline(yintercept = top_up_IG2$mean_bed_net_use_both, linetype = 2) +
-  xlab("Days") + ylab("Total net coverage")
+write.csv(rbind(inc_T, inc_B), file = "data/inc_estimates.csv")
 
 
-out_p_only <- sim_forward(start_EIR = start_EIR_p_only$root,
-                       Location_in = "Ouinhi",
-                       Net_in = "Pyrethroid_only",
-                       top_up_name = "top_up_p_only")
 
-ggplot(data = data.frame("t" = out_p_only$timestep,
-                         "prev" = summary_pfpr_0_100(out_p_only))) +
-  geom_line(aes(x = t, y = prev)) +
-  geom_point(data = subset(df, Net == "Pyrethroid_only"), 
-             aes(x = Time_months * 30 + 365 + 1, y = Malaria_prevalence),
-             col = "skyblue", size = 3.5) +
-  theme_bw() + 
-  xlab("Days") +
-  ylab("Malaria prevalence in total population")
 
-sum(out_IG2$n_inc_clinical_1825_5475[seq(int_time, int_time + 365)]/out_IG2$n_1825_5475[seq(int_time, int_time + 365)])
-out_IG2$clin_
+# point prevalence values at the given times
+T_tu_df_none <- subset(T_tu_df)
+
+ind_T_none <- match(df_T$date, T_tu_df_none$date)
+
+df_T <- df_T %>% mutate(pred_prev_none = T_tu_df_none[ind_T_none, "prev"])
+
+
+
+
+df_out <- rbind(
+  subset(df_T, Time_months %in% c(6, 12, 18, 24))[, c("Net", "Time_months", "Malaria_prevalence", "pred_prev", "pred_prev_l", "pred_prev_u",
+                                                                    "pred_prev_cf", "pred_prev_l_cf", "pred_prev_u_cf")] %>% 
+                  arrange(Net, Time_months) %>% mutate(Country = "Tanzania"),
+                
+                subset(df_B, Time_months %in% c(6, 12, 18, 24))[, c("Net", "Time_months", "Malaria_prevalence", "pred_prev", "pred_prev_l", "pred_prev_u",
+                                                                    "pred_prev_cf", "pred_prev_l_cf", "pred_prev_u_cf")] %>% 
+                  arrange(Net, Time_months) %>% mutate(Country = "Benin")
+) %>% mutate(pred_prev_out = paste0(round(pred_prev, digits = 3), 
+                                    " (", round(pred_prev_u, digits = 3), " - ", 
+                                    round(pred_prev_l, digits = 3), ")"),
+             pred_prev_out_cf = paste0(round(pred_prev_cf, digits = 3), 
+                                       " (", round(pred_prev_u_cf, digits = 3), " - ", 
+                                       round(pred_prev_l_cf, digits = 3), ")"),)
+
+# mean prevalence values
+
+# prevalence values when no nets are added
+
+
+write.csv(df_out, file = "data/prevalence_estimates.csv")
