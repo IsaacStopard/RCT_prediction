@@ -379,7 +379,7 @@ get_top_up <- function(net,
   
   # calculating the differences between the nets lost at different times
   for(i in 2:nrow(covs_df)){
-    covs_df[i, "int_bed_net_cov_m"] <- gen_cov(retention = median(fit_e_base$retention),
+    covs_df[i, "int_bed_net_cov_m"] <- gen_cov(retention = median(fit_e_base$retention)*365,
                                              base = covs_df[1, "int_bed_net_cov_m"],
                                              t = covs_df[i, "t"])$net_cov
     

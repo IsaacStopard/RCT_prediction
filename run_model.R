@@ -643,7 +643,7 @@ sim_forward <- function(start_EIR,
     n_init_times <- length(init_times)
     
     # calculating the initial coverage required to give the mean init cov values
-    mean_init_cov <- calc_base_mean(retention = retention, # the retention parameter is multiplied by 365 in the function so needs to be adjusted
+    mean_init_cov <- calc_base_mean(retention = retention, 
                                     mean = init_cov,
                                     min_t = 0,
                                     max_t = init_time_diff)
@@ -1712,41 +1712,8 @@ cf_plot_B <- ggplot() +
   values = c("black", "darkgreen", "skyblue"),
   name = "",
   breaks = c("None", "IG2", "IG2_tu"))
-  
-  
-# ggplot() +
-#   geom_line(data = subset(B_tu_df, rep != "mean" & date <= intervention_date_B), 
-#             aes(x = date, y = prev, col = net, group = interaction(net, rep)),
-#             alpha = 0.2, linewidth = 0.2) +
-#   
-#   geom_line(data = subset(B_tu_df, rep != "mean" & date >= intervention_date_B), 
-#             aes(x = date, y = prev, col = net, group = interaction(net, rep)),
-#             alpha = 0.4, linewidth = 0.2) +
-#   
-#   geom_line(data = subset(B_tu_df, rep == "mean" & date >= intervention_date_B),
-#             aes(x = date, y = prev, col = net, group = interaction(net, rep)),
-#             linewidth = 0.75) +
-#   coord_cartesian(xlim = c(intervention_date_B - 365/20, intervention_date_B + 365*3),
-#                   ylim = c(0, 0.7)) +
-#   geom_vline(xintercept = intervention_date_B, linetype = 2, linewidth = 1, alpha = 0.5) +
-#   xlab("Year") +
-#   ylab("Malaria prevalence in\npeople of all ages") +
-#   theme_classic() +
-#   ggtitle("Benin counterfactual") +
-#   theme(text = element_text(size = 17)) +
-#   scale_y_continuous(labels = scales::percent, limits = c(0, 1), breaks = seq(0, 1, 0.1)) +
-#   scale_colour_manual(labels = c("No trial nets added",
-#                                  "Trial nets not replaced",
-#                                  "Trial nets replaced\nwith pyrethroid-only nets",
-#                                  "Trial nets replaced\nwith trial nets"
-#   ), 
-#   values = c("black", "grey", "darkgreen", "skyblue"),
-#   name = "",
-#   breaks = c("None", "IG2_tu_none", "IG2", "IG2_tu"))
-
 
 ##### actual vs fitted plot #####
-
 af_arm_sims_T_tu <- data.frame("t" = rep(pred_prev_T[[1]]$timestep, 3),
                             "date" = rep(pred_prev_T[[1]]$date, 3),
                             "net" = c(rep("IG2", sim_length),
@@ -1933,17 +1900,18 @@ extract_inc <- function(Net_in,
 # calculate efficacy - put on a different plot
 # put grey points from previous paper - R2 with and without the new ones
 # R2 from the x=y line
-
 rel_reduction <- rbind(data.frame(s_times = rep(c(intervention_date_T, 
-                                            intervention_date_T + 365,
-                                            intervention_date_T),
-                                          2),
+                                                  intervention_date_T + 365,
+                                                  intervention_date_T,
+                                                  intervention_date_T),
+                                                3),
                             e_times = rep(c(intervention_date_T + 365,
                                             intervention_date_T + 365 * 2,
-                                            intervention_date_T + 365 * 2),
-                                          2),
-                            year = rep(c("Year 1", "Year 2", "Overall"), 2),
-                            net = sort(rep(c("Pyrethroid_only", "PBO", "IG2"), 3))
+                                            intervention_date_T + 365 * 2,
+                                            intervention_date_T + 365 * 3),
+                                          3),
+                            year = rep(c("Year 1", "Year 2", "Overall", "0_to_3"), 3),
+                            net = sort(rep(c("Pyrethroid_only", "PBO", "IG2"), 4))
 ) %>% rowwise() %>% 
   mutate(p_only_m = extract_inc(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
                                 bioassay_uncertainty = "middle",
@@ -1982,39 +1950,60 @@ rel_reduction <- rbind(data.frame(s_times = rep(c(intervention_date_T,
                                s_date = s_times,
                                e_date = e_times),
          
-         t_net_m = extract_inc(Net_in = net, int_Net_in = net,
+         tu_net_m = extract_inc(Net_in = net, int_Net_in = net,
+                                bioassay_uncertainty = "middle",
+                                vals_pred = T_vals_pred_tu,
+                                pred_prev = pred_prev_T_tu,
+                                s_date = s_times,
+                                e_date = e_times),
+         
+         tu_net_l = extract_inc(Net_in = net, int_Net_in = net,
+                                bioassay_uncertainty = "lower",
+                                vals_pred = T_vals_pred_tu,
+                                pred_prev = pred_prev_T_tu,
+                                s_date = s_times,
+                                e_date = e_times),
+         
+         tu_net_u = extract_inc(Net_in = net, int_Net_in = net,
+                                bioassay_uncertainty = "upper",
+                                vals_pred = T_vals_pred_tu,
+                                pred_prev = pred_prev_T_tu,
+                                s_date = s_times,
+                                e_date = e_times),
+         
+         cf_net_m = extract_inc(Net_in = net, int_Net_in = net,
                                bioassay_uncertainty = "middle",
-                               vals_pred = T_vals_pred,
-                               pred_prev = pred_prev_T,
-                               s_date = s_times,
-                               e_date = e_times),
-         t_net_l = extract_inc(Net_in = net, int_Net_in = net,
-                               bioassay_uncertainty = "lower",
-                               vals_pred = T_vals_pred,
-                               pred_prev = pred_prev_T,
-                               s_date = s_times,
-                               e_date = e_times),
-         t_net_u = extract_inc(Net_in = net, int_Net_in = net,
-                               bioassay_uncertainty = "upper",
-                               vals_pred = T_vals_pred,
-                               pred_prev = pred_prev_T,
+                               vals_pred = T_vals_pred_tu_none,
+                               pred_prev = pred_prev_T_tu_none,
                                s_date = s_times,
                                e_date = e_times),
          
-    Country = "Tanzania",
-    rr_m = (p_only_m - t_net_m)/p_only_m,
-    rr_l = (p_only_l - t_net_l)/p_only_l,
-    rr_u = (p_only_u - t_net_u)/p_only_u
+         cf_net_l = extract_inc(Net_in = net, int_Net_in = net,
+                               bioassay_uncertainty = "lower",
+                               vals_pred = T_vals_pred_tu_none,
+                               pred_prev = pred_prev_T_tu_none,
+                               s_date = s_times,
+                               e_date = e_times),
+         
+         cf_net_u = extract_inc(Net_in = net, int_Net_in = net,
+                               bioassay_uncertainty = "upper",
+                               vals_pred = T_vals_pred_tu_none,
+                               pred_prev = pred_prev_T_tu_none,
+                               s_date = s_times,
+                               e_date = e_times),
+         
+    Country = "Tanzania"
   ),
-
-data.frame(s_times = c(intervention_date_B, 
+data.frame(s_times = rep(c(intervention_date_B, 
                            intervention_date_B + 365,
-                           intervention_date_B),
-           e_times = c(intervention_date_B + 365,
+                           intervention_date_B,
+                           intervention_date_B), 2),
+           e_times = rep(c(intervention_date_B + 365,
                            intervention_date_B + 365 * 2,
-                           intervention_date_B + 365 * 2),
-           year = c("Year 1", "Year 2", "Overall"),
-           net = rep("Pyrethroid_only", "IG2", 3)) %>% 
+                           intervention_date_B + 365 * 2,
+                           intervention_date_B + 365 * 3), 2),
+           year = rep(c("Year 1", "Year 2", "Overall", "0_to_3"), 2),
+           net = sort(rep(c("Pyrethroid_only", "IG2"), 4))) %>% 
   rowwise() %>% 
   mutate(p_only_m = extract_inc(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
                                 bioassay_uncertainty = "middle",
@@ -2052,13 +2041,67 @@ data.frame(s_times = c(intervention_date_B,
                                pred_prev = pred_prev_B,
                                s_date = s_times,
                                e_date = e_times),
-         Country = "Benin",
-         rr_m = (p_only_m - t_net_m)/p_only_m,
-         rr_l = (p_only_l - t_net_l)/p_only_l,
-         rr_u = (p_only_u - t_net_u)/p_only_u
-  )
-
-)
+         
+         tu_net_m = extract_inc(Net_in = net, int_Net_in = net,
+                     bioassay_uncertainty = "middle",
+                     vals_pred = B_vals_pred_tu,
+                     pred_prev = pred_prev_B_tu,
+                     s_date = s_times,
+                     e_date = e_times),
+         
+         tu_net_l = extract_inc(Net_in = net, int_Net_in = net,
+                                bioassay_uncertainty = "lower",
+                                vals_pred = B_vals_pred_tu,
+                                pred_prev = pred_prev_B_tu,
+                                s_date = s_times,
+                                e_date = e_times),
+         
+         tu_net_u = extract_inc(Net_in = net, int_Net_in = net,
+                                bioassay_uncertainty = "upper",
+                                vals_pred = B_vals_pred_tu,
+                                pred_prev = pred_prev_B_tu,
+                                s_date = s_times,
+                                e_date = e_times),
+         
+         cf_net_m = extract_inc(Net_in = net, int_Net_in = net,
+                                bioassay_uncertainty = "middle",
+                                vals_pred = B_vals_pred_tu_none,
+                                pred_prev = pred_prev_B_tu_none,
+                                s_date = s_times,
+                                e_date = e_times),
+         
+         cf_net_l = extract_inc(Net_in = net, int_Net_in = net,
+                                bioassay_uncertainty = "lower",
+                                vals_pred = B_vals_pred_tu_none,
+                                pred_prev = pred_prev_B_tu_none,
+                                s_date = s_times,
+                                e_date = e_times),
+         
+         cf_net_u = extract_inc(Net_in = net, int_Net_in = net,
+                                bioassay_uncertainty = "upper",
+                                vals_pred = B_vals_pred_tu_none,
+                                pred_prev = pred_prev_B_tu_none,
+                                s_date = s_times,
+                                e_date = e_times),
+         
+         Country = "Benin")
+) %>% rowwise() %>% mutate(rr_m = (p_only_m - t_net_m)/p_only_m,
+                           rr_l = (p_only_l - t_net_l)/p_only_l,
+                           rr_u = (p_only_u - t_net_u)/p_only_u,
+                           
+                           overall_efficacy_m = (cf_net_m - t_net_m) / cf_net_m,
+                           overall_efficacy_l = (cf_net_l - t_net_l) / cf_net_l,
+                           overall_efficacy_u = (cf_net_u - t_net_u) / cf_net_u,
+                           
+                           rr_tu_m = (p_only_m - tu_net_m)/p_only_m,
+                           rr_tu_l = (p_only_l - tu_net_l)/p_only_l,
+                           rr_tu_u = (p_only_u - tu_net_u)/p_only_u,
+                           
+                           overall_efficacy_tu_m = (cf_net_m - tu_net_m) / cf_net_m,
+                           overall_efficacy_tu_l = (cf_net_l - tu_net_l) / cf_net_l,
+                           overall_efficacy_tu_u = (cf_net_u - tu_net_u) / cf_net_u
+                           
+                           )
 
 actual_inc <- read_xlsx("data/actual_incidence_estimates.xlsx") %>% mutate(rr_m = (Pyrethroid_only_incidence - Trial_incidence)/Pyrethroid_only_incidence,
                                                                            sample = "observed")
@@ -2066,11 +2109,12 @@ actual_inc <- read_xlsx("data/actual_incidence_estimates.xlsx") %>% mutate(rr_m 
 rel_reduction$Country <- factor(rel_reduction$Country, levels=c("Tanzania", "Benin"))
 actual_inc$Country <- factor(actual_inc$Country, levels=c("Tanzania", "Benin"))
 
-rr_plot <- ggplot(data = rbind(rel_reduction[,c("Country", "year", "rr_m", "net")] %>% mutate(sample = "predicted"),
+rr_plot <- ggplot(data = rbind(subset(rel_reduction, net != "Pyrethroid_only" & year != "0_to_3")[,c("Country", "year", "rr_m", "net")] %>% 
+                                 mutate(sample = "predicted"),
                     actual_inc[,c("Country", "year", "rr_m", "net", "sample")]) %>% rowwise() %>%  
                     mutate(net = if(net == "IG2"){"pyrethroid-pyrrole"} else{"pyrethroid-PBO"}), 
-       aes(x = year, y = rr_m, fill = net,  group = interaction(net, sample))) + 
-  geom_bar_pattern(stat = "identity", 
+       aes(x = year, y = rr_m, fill = net, group = interaction(net, sample))) + 
+  ggpattern::geom_bar_pattern(stat = "identity", 
                    alpha = 0.4, 
                    position = position_dodge(preserve = "single"),
                    pattern_colour = "black",
@@ -2096,171 +2140,209 @@ png(file = "figures/model_simulations.png", height = 1100, width = 1800)
     
 dev.off()
 
-plot_grid(
-plot_grid(
-  T_arm_plot + theme(legend.position = "none"),
-  B_arm_plot + 
-    theme(legend.position = "none"),
-  
-  #get_legend(T_arm_plot),
-  labels = c("A", "B", ""), nrow = 1#, rel_widths = c(1, 1, 0.4)
-),
-plot_grid(af_plot, 
-  NULL, labels = c("C", ""), rel_widths = c(1, 0.5),
-  nrow = 1), nrow = 2
-)
-
 ############################################
 ##### extracting the prevalence values #####
 ############################################
 
 # extracting the values
+inc_out <- rel_reduction %>% rowwise() %>%
+  mutate(observed_arm = paste0(round(t_net_m, digits = 2), " (", round(rr_m, digits = 2)*100,"%)"),
+         overall_arm = paste0(round(overall_efficacy_m, digits = 2)*100, "%"),
+         observed_tu = paste0(round(tu_net_m, digits = 2), " (", round(rr_tu_m, digits = 2)*100,"%)"),
+         overall_tu = paste0(round(overall_efficacy_tu_m, digits = 2)*100, "%")) %>% 
+  select(c(Country, year, net, observed_arm, overall_arm, observed_tu, overall_tu))
 
-inc_T <- data.frame(s_times = rep(c(intervention_date_T, 
-                                    intervention_date_T + 365,
-                                    intervention_date_T),
-                                  3),
-                    e_times = rep(c(intervention_date_T + 365,
-                                    intervention_date_T + 365 * 2,
-                                    intervention_date_T + 365 * 2),
-                                  3),
-                    net = sort(rep(c("Pyrethroid_only", "PBO", "IG2"), 3))
-) %>% rowwise() %>% 
-  mutate(inc = paste0(
-    round(extract_inc(Net_in = net, int_Net_in = net,
-                      bioassay_uncertainty = "middle",
-                      vals_pred = T_vals_pred,
-                      pred_prev = pred_prev_T,
-                      s_date = s_times,
-                      e_date = e_times), digits = 2),
-    " (", round(extract_inc(Net_in = net, int_Net_in = net,
-                            bioassay_uncertainty = "upper",
-                            vals_pred = T_vals_pred,
-                            pred_prev = pred_prev_T,
-                            s_date = s_times,
-                            e_date = e_times), digits = 2),
-    " - ",
-    round(extract_inc(Net_in = net, int_Net_in = net,
-                      bioassay_uncertainty = "lower",
-                      vals_pred = T_vals_pred,
-                      pred_prev = pred_prev_T,
-                      s_date = s_times,
-                      e_date = e_times), digits = 2)
-    , ")"),
-    
-    inc_tu = paste0(
-      round(extract_inc(Net_in = net, int_Net_in = net,
-                        bioassay_uncertainty = "middle",
-                        vals_pred = T_vals_pred_tu,
-                        pred_prev = pred_prev_T_tu,
-                        s_date = s_times,
-                        e_date = e_times), digits = 2),
-      " (", round(extract_inc(Net_in = net, int_Net_in = net,
-                              bioassay_uncertainty = "upper",
-                              vals_pred = T_vals_pred_tu,
-                              pred_prev = pred_prev_T_tu,
-                              s_date = s_times,
-                              e_date = e_times), digits = 2),
-      " - ",
-      round(extract_inc(Net_in = net, int_Net_in = net,
-                        bioassay_uncertainty = "lower",
-                        vals_pred = T_vals_pred_tu,
-                        pred_prev = pred_prev_T_tu,
-                        s_date = s_times,
-                        e_date = e_times), digits = 2)
-      , ")"),
-    Country = "Tanzania"
-  )
+write.csv(inc_out, file = "data/inc_estimates.csv")
 
-inc_B <- data.frame(s_times = rep(c(intervention_date_B, 
-                                    intervention_date_B + 365,
-                                    intervention_date_B),
-                                  2),
-                    e_times = rep(c(intervention_date_B + 365,
-                                    intervention_date_B + 365 * 2,
-                                    intervention_date_B + 365 * 2),
-                                  2),
-                    net = sort(rep(c("Pyrethroid_only", "IG2"), 3))
-) %>% rowwise() %>% 
-  mutate(inc = paste0(
-    round(extract_inc(Net_in = net, int_Net_in = net,
-                      bioassay_uncertainty = "middle",
-                      vals_pred = B_vals_pred,
-                      pred_prev = pred_prev_B,
-                      s_date = s_times,
-                      e_date = e_times), digits = 2),
-    " (", round(extract_inc(Net_in = net, int_Net_in = net,
-                            bioassay_uncertainty = "upper",
-                            vals_pred = B_vals_pred,
-                            pred_prev = pred_prev_B,
-                            s_date = s_times,
-                            e_date = e_times), digits = 2),
-    " - ",
-    round(extract_inc(Net_in = net, int_Net_in = net,
-                      bioassay_uncertainty = "lower",
-                      vals_pred = B_vals_pred,
-                      pred_prev = pred_prev_B,
-                      s_date = s_times,
-                      e_date = e_times), digits = 2)
-    , ")"),
-    
-    inc_tu = paste0(
-      round(extract_inc(Net_in = net, int_Net_in = net,
-                        bioassay_uncertainty = "middle",
-                        vals_pred = B_vals_pred_tu,
-                        pred_prev = pred_prev_B_tu,
-                        s_date = s_times,
-                        e_date = e_times), digits = 2),
-      " (", round(extract_inc(Net_in = net, int_Net_in = net,
-                              bioassay_uncertainty = "upper",
-                              vals_pred = B_vals_pred_tu,
-                              pred_prev = pred_prev_B_tu,
-                              s_date = s_times,
-                              e_date = e_times), digits = 2),
-      " - ",
-      round(extract_inc(Net_in = net, int_Net_in = net,
-                        bioassay_uncertainty = "lower",
-                        vals_pred = B_vals_pred_tu,
-                        pred_prev = pred_prev_B_tu,
-                        s_date = s_times,
-                        e_date = e_times), digits = 2)
-      , ")"),
-    Country = "Benin"
-  )
-
-write.csv(rbind(inc_T, inc_B), file = "data/inc_estimates.csv")
-
-
-
+write.csv(actual_inc %>% mutate(inc_out = paste0(Trial_incidence, " (", round(rr_m, digits = 2)*100, "%)")), file = "data/actual_inc_estimates.csv")
 
 # point prevalence values at the given times
-T_tu_df_none <- subset(T_tu_df)
 
-ind_T_none <- match(df_T$date, T_tu_df_none$date)
+df_T <- left_join(df_T, data.frame(date = rep(pred_prev_T_tu_none[[1]]$date, 3),
+                           Net = sort(rep(c("IG2", "PBO", "Pyrethroid_only"), length(pred_prev_T_tu_none[[1]]$date))),
+                           prev_none = c(
+                             extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                          Country_in = "Tanzania", bioassay_uncertainty = "middle",
+                                          vals_pred = T_vals_pred_tu_none, pred_prev = pred_prev_T_tu_none),
+                             
+                             extract_prev(Net_in = "PBO", int_Net_in = "PBO",
+                                          Country_in = "Tanzania", bioassay_uncertainty = "middle",
+                                          vals_pred = T_vals_pred_tu_none, pred_prev = pred_prev_T_tu_none),
+                             
+                             extract_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                          Country_in = "Tanzania", bioassay_uncertainty = "middle",
+                                          vals_pred = T_vals_pred_tu_none, pred_prev = pred_prev_T_tu_none))), 
+          by = c("date", "Net"))
 
-df_T <- df_T %>% mutate(pred_prev_none = T_tu_df_none[ind_T_none, "prev"])
+df_B <- left_join(df_B, data.frame(date = rep(pred_prev_B_tu_none[[1]]$date, 2),
+                                   Net = sort(rep(c("IG2", "Pyrethroid_only"), length(pred_prev_B_tu_none[[1]]$date))),
+                                   prev_none = c(
+                                     extract_prev(Net_in = "IG2", int_Net_in = "IG2",
+                                                  Country_in = "Benin", bioassay_uncertainty = "middle",
+                                                  vals_pred = B_vals_pred_tu_none, pred_prev = pred_prev_B_tu_none),
+                                     
+                                     extract_prev(Net_in = "Pyrethroid_only", int_Net_in = "Pyrethroid_only",
+                                                  Country_in = "Benin", bioassay_uncertainty = "middle",
+                                                  vals_pred = B_vals_pred_tu_none, pred_prev = pred_prev_B_tu_none))), 
+                  by = c("date", "Net"))
 
 
-
-
-df_out <- rbind(
-  subset(df_T, Time_months %in% c(6, 12, 18, 24))[, c("Net", "Time_months", "Malaria_prevalence", "pred_prev", "pred_prev_l", "pred_prev_u",
-                                                                    "pred_prev_cf", "pred_prev_l_cf", "pred_prev_u_cf")] %>% 
-                  arrange(Net, Time_months) %>% mutate(Country = "Tanzania"),
-                
-                subset(df_B, Time_months %in% c(6, 12, 18, 24))[, c("Net", "Time_months", "Malaria_prevalence", "pred_prev", "pred_prev_l", "pred_prev_u",
-                                                                    "pred_prev_cf", "pred_prev_l_cf", "pred_prev_u_cf")] %>% 
+df_out <- rbind(left_join(subset(df_T, Time_months %in% c(6, 12, 18, 24) & Net!= "RG")[, c("Net", "Time_months", "Malaria_prevalence", "pred_prev",
+                                                                    "pred_prev_cf", "prev_none")],
+                          
+                          subset(df_T, Time_months %in% c(6, 12, 18, 24) & Net == "Pyrethroid_only")[, c("Time_months", "Malaria_prevalence",  "pred_prev",
+                                                                           "pred_prev_cf", "prev_none")] %>% 
+                            setNames(c("Time_months", "Malaria_prevalence_p_only", "pred_prev_p_only", "pred_prev_cf_p_only", "prev_none_p_only")),
+          by = c("Time_months")) %>% 
+            arrange(Net, Time_months) %>% mutate(Country = "Tanzania"),
+  
+  left_join(subset(df_B, Time_months %in% c(6, 12, 18, 24) & Net!= "RG")[, c("Net", "Time_months", "Malaria_prevalence", "pred_prev",
+                                                                            "pred_prev_cf", "prev_none")],
+            
+           subset(df_B, Time_months %in% c(6, 12, 18, 24) & Net == "Pyrethroid_only")[, c("Time_months", "Malaria_prevalence", "pred_prev", "pred_prev_cf", "prev_none")] %>% 
+             setNames(c("Time_months", "Malaria_prevalence_p_only", "pred_prev_p_only", "pred_prev_cf_p_only", "prev_none_p_only")),
+           by = c("Time_months")) %>% 
                   arrange(Net, Time_months) %>% mutate(Country = "Benin")
-) %>% mutate(pred_prev_out = paste0(round(pred_prev, digits = 3), 
-                                    " (", round(pred_prev_u, digits = 3), " - ", 
-                                    round(pred_prev_l, digits = 3), ")"),
-             pred_prev_out_cf = paste0(round(pred_prev_cf, digits = 3), 
-                                       " (", round(pred_prev_u_cf, digits = 3), " - ", 
-                                       round(pred_prev_l_cf, digits = 3), ")"),)
-
-# mean prevalence values
-
-# prevalence values when no nets are added
-
+  ) %>% 
+  mutate(observed = paste0(round(Malaria_prevalence, digits = 2), 
+                                    " (", round((Malaria_prevalence_p_only - Malaria_prevalence) / Malaria_prevalence_p_only, digits = 2)*100,"%)"),
+         
+         model_observed = paste0(round(pred_prev, digits = 2), 
+                                       " (", round((pred_prev_p_only - pred_prev)/pred_prev_p_only, digits = 2)*100,"%)"),
+         
+         overall = paste0(round((prev_none - pred_prev)/prev_none, digits = 2)*100, "%"),
+         
+         model_observed_tu = paste0(round(pred_prev_cf, digits = 2), 
+                                 " (", round((pred_prev_p_only - pred_prev_cf)/pred_prev_p_only, digits = 2)*100,"%)"),
+         
+         overall_tu = paste0(round((prev_none - pred_prev_cf)/prev_none, digits = 2)*100, "%")
+         )
 
 write.csv(df_out, file = "data/prevalence_estimates.csv")
+
+# annual mean prevalence values
+
+extract_prev_mean_annual <- function(Net_in, 
+                         int_Net_in,
+                         Country_in,
+                         bioassay_uncertainty = "middle",
+                         vals_pred, 
+                         pred_prev,
+                         top_up_net = NA,
+                         n_rep = 3,
+                         trial_net_cov_in = NULL,
+                         s_date,
+                         e_date){
+  
+  #p <- if(bioassay_uncertainty == "middle"){0.5} else if(bioassay_uncertainty == "lower"){0.025} else{0.975}
+  
+  if(is.null(trial_net_cov_in) == 1){
+    inds <- if(is.na(top_up_net) == 1){
+      which(vals_pred$Net_in == Net_in & 
+              vals_pred$int_Net_in == int_Net_in &
+              vals_pred$bioassay_uncertainty == bioassay_uncertainty)
+    } else{
+      which(vals_pred$Net_in == Net_in & 
+              vals_pred$int_Net_in == int_Net_in &
+              vals_pred$bioassay_uncertainty == bioassay_uncertainty &
+              vals_pred$top_up_net == top_up_net)
+    }} else{
+      
+      inds <- if(is.na(top_up_net) == 1){
+        which(vals_pred$Net_in == Net_in & 
+                vals_pred$int_Net_in == int_Net_in &
+                vals_pred$bioassay_uncertainty == bioassay_uncertainty &
+                is.na(vals_pred$trial_net_cov_in) == is.na(trial_net_cov_in))
+      } else{
+        which(vals_pred$Net_in == Net_in & 
+                vals_pred$int_Net_in == int_Net_in &
+                vals_pred$bioassay_uncertainty == bioassay_uncertainty &
+                vals_pred$top_up_net == top_up_net &
+                is.na(vals_pred$trial_net_cov_in) == is.na(trial_net_cov_in))
+      }
+      
+      
+    }
+  
+  if(length(inds) != n_rep){return(NA)}else{
+    
+    prev_mat <- if(Country_in == "Tanzania"){sapply(inds, function(i, p){summary_pfpr_0.5_5(p[[i]])}, p = pred_prev)
+    } else if(Country_in == "Benin"){sapply(inds, function(i, p){summary_pfpr_0_100_all(p[[i]])}, p = pred_prev)
+    }
+    
+    s_time <- which(pred_prev[[1]]$date == s_date)
+    e_time <- which(pred_prev[[1]]$date == e_date)
+    
+    
+    prev_mat <- apply(prev_mat[s_time:e_time,], 2, mean)
+    
+    return(mean(prev_mat))
+  }
+}
+
+mean_prev_out <- rbind(data.frame(s_date = rep(c(intervention_date_T, 
+                           intervention_date_T), 3),
+           e_date = rep(c(intervention_date_T + 365 * 2,
+                           intervention_date_T + 365 * 3),3),
+           year = rep(c("0_to_24", "0_to_36"), 3),
+           net = sort(rep(c("Pyrethroid_only", "PBO", "IG2"), 2))) %>% mutate(Country = "Tanzania"),
+           
+           data.frame(s_date = rep(c(intervention_date_B, 
+                                     intervention_date_B), 2),
+                      e_date = rep(c(intervention_date_B + 365 * 2,
+                                     intervention_date_B + 365 * 3), 2),
+                      year = rep(c("0_to_24", "0_to_36"), 2),
+                      net = sort(rep(c("Pyrethroid_only", "IG2"), 2))) %>% mutate(Country = "Benin")) %>% 
+  rowwise() %>%
+  mutate(prev = extract_prev_mean_annual(Net_in = net, 
+                                         int_Net_in = net,
+                                         Country_in = Country,
+                                         vals_pred = if(Country == "Tanzania"){T_vals_pred}else{B_vals_pred}, 
+                                         pred_prev = if(Country == "Tanzania"){pred_prev_T}else{pred_prev_B},
+                                         top_up_net = NA,
+                                         n_rep = 3,
+                                         trial_net_cov_in = NULL,
+                                         s_date = s_date,
+                                         e_date = e_date),
+         
+         prev_cf = extract_prev_mean_annual(Net_in = net, 
+                                            int_Net_in = net,
+                                            Country_in = Country,
+                                            vals_pred = if(Country == "Tanzania"){T_vals_pred_tu}else{B_vals_pred_tu}, 
+                                            pred_prev = if(Country == "Tanzania"){pred_prev_T_tu}else{pred_prev_B_tu},
+                                            top_up_net = NA,
+                                            n_rep = 3,
+                                            trial_net_cov_in = NULL,
+                                            s_date = s_date,
+                                            e_date = e_date),
+         
+         prev_none = extract_prev_mean_annual(Net_in = net, 
+                                              int_Net_in = net,
+                                              Country_in = Country,
+                                              vals_pred = if(Country == "Tanzania"){T_vals_pred_tu_none}else{B_vals_pred_tu_none}, 
+                                              pred_prev = if(Country == "Tanzania"){pred_prev_T_tu_none}else{pred_prev_B_tu_none},
+                                              top_up_net = NA,
+                                              n_rep = 3,
+                                              trial_net_cov_in = 0,
+                                              s_date = s_date,
+                                              e_date = e_date),
+         
+         prev_p_only = extract_prev_mean_annual(Net_in = "Pyrethroid_only", 
+                                                int_Net_in = "Pyrethroid_only",
+                                                Country_in = Country,
+                                                vals_pred = if(Country == "Tanzania"){T_vals_pred}else{B_vals_pred}, 
+                                                pred_prev = if(Country == "Tanzania"){pred_prev_T}else{pred_prev_B},
+                                                top_up_net = NA,
+                                                n_rep = 3,
+                                                trial_net_cov_in = NULL,
+                                                s_date = s_date,
+                                                e_date = e_date)) %>%
+  
+  mutate(pred_observed = paste0(round(prev, digits = 2), " (", round((prev_p_only - prev)/prev_p_only, digits = 2)*100, "%)"),
+         overall_observed = paste0(round((prev_none - prev)/prev_none, digits = 2)*100, "%"),
+         
+         pred_tu = paste0(round(prev_cf, digits = 2), " (", round((prev_p_only - prev_cf)/prev_p_only, digits = 2)*100, "%)"),
+         overall_tu = paste0(round((prev_none - prev_cf)/prev_none, digits = 2)*100, "%"))
+
+write.csv(mean_prev_out, file = "data/mean_prevalence.csv")
+

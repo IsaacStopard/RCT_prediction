@@ -8,12 +8,20 @@ gen_cov <- function(retention, base, t = seq(0,24*30, 0.1)){
 
 # calculate the mean coverage with declining bed net use
 calc_mean_cov <- function(retention, base, min_t, max_t){
-  rate <- 1 - exp(-1/(retention))
+  rate <- 1 - exp(-1/(retention*365))
   int_u <- -1/rate * exp(-rate * max_t) # integral
   int_l <- -1/rate * exp(-rate * min_t) #
   mean <- (int_u - int_l) * base /(max_t - min_t)
   return(mean)
 }
+
+fun <- function(t, retention = 5, base = 0.7){
+  rate <- 1 - exp(-1/(retention*365))
+  return(base * exp(-rate * t))
+}
+
+integrate(fun, lower = 0, upper = 30)
+
 
 calc_base_mean <- function(retention, mean, min_t, max_t){
   rate <- 1 - exp(-1/(retention))
