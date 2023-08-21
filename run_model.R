@@ -8,6 +8,7 @@ suppressPackageStartupMessages(library(ggplot2)); library(malariasimulation); li
 library(reshape2); library(tidyverse); library(readxl); library(rstan); library(pracma)
 library(foresite); library(doParallel); library(foreach);
 library(patchwork); library(pammtools); library(ggpattern);
+library(cowplot)
 
 source(file = "functions.R"); source(file = "retention_fit_top_up.R")
 
@@ -169,7 +170,7 @@ top_up_p_only_T <- top_up_all$top_up_p_only_T
 
 # plotting
 png(file = "figures/net_cover.png", height = 700, width = 1100)
-plot_grid(
+cowplot::plot_grid(
   top_up_p_only_T$plot + 
     ggtitle("Tanzania: pyrethroid-only") + 
     theme(legend.position = "none"),
@@ -189,6 +190,23 @@ plot_grid(
   labels = c("A", "B", "C", "D", "E", "")
 )
 dev.off()
+
+cowplot::plot_grid(
+  cowplot::plot_grid(
+  top_up_p_only_T$plot + 
+    ggtitle("Tanzania: pyrethroid-only") + 
+    theme(legend.position = "none"),
+  top_up_RG_T$plot +
+    ggtitle("Tanzania: pyrethroid-pyriproxyfen") + 
+    theme(legend.position = "none"),
+  top_up_p_only_B$plot +
+    ggtitle("Benin: pyrethroid-only") + 
+    theme(legend.position = "none"),
+  top_up_RG_B$plot + 
+    ggtitle("Benin: pyrethroid-pyriproxyfen") +
+    theme(legend.position = "none")),
+  get_legend(top_up_p_only_T$plot), ncol = 2, rel_widths = c(1, 0.2)
+)
 
 ######################################################################
 ##### calculating the species proportions and bioassay mortality #####
@@ -1471,6 +1489,8 @@ B_arm_plot <- ggplot() +
         legend.background = element_blank(),
         legend.position = c(0.85, 0.95)) +
   scale_y_continuous(labels = scales::percent, limits = c(0, 1), breaks = seq(0, 0.7, 0.1))
+
+plot_grid(T_arm_plot, B_arm_plot)
 
 # pyrethroid-pyrrole arms with pyrethroid-pyrrole top up nets
 
