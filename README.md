@@ -1,5 +1,5 @@
 # **Data and code for: Model projections of the epidemiological benefit of pyrethroid-pyrrole insecticide treated nets against malaria **
-## **Authors: Thomas S. Churcher*, Isaac J. Stopard*, Arran Hamlet1, Dominic P. Dee, Antoine Sanou, Mark Rowland, Moussa W. Guelbeogo, Basiliana Emidi, Jacklin F. Mosha, Joseph D. Challenger, Adrian Denz, Andrew Glover,  Giovanni D. Charles, Emma L. Russell, Rich Fitzjohn, Pete Winskill, Christen Fornadel, Tom Mclean, Peder Digre, Joe Wagman, Frank Mosha, Jackie Cook, Martin C Akogbéto, Luc S. Djogbenou, Hilary Ranson, Philip McCall, Alphaxard Manjurano, Sagnon N’Falé, Natacha Protopopoff, Manfred Accrombessi, Corine Ngufor, Geraldine Foster, Ellie Sherrard-Smith **
+## **Authors: Thomas S. Churcher, Isaac J. Stopard, Arran Hamlet, Dominic P. Dee, Antoine Sanou, Mark Rowland, Moussa W. Guelbeogo, Basiliana Emidi, Jacklin F. Mosha, Joseph D. Challenger, Adrian Denz, Andrew Glover,  Giovanni D. Charles, Emma L. Russell, Rich Fitzjohn, Pete Winskill, Christen Fornadel, Tom Mclean, Peder Digre, Joe Wagman, Frank Mosha, Jackie Cook, Martin C Akogbéto, Luc S. Djogbenou, Hilary Ranson, Philip McCall, Alphaxard Manjurano, Sagnon N’Falé, Natacha Protopopoff, Manfred Accrombessi, Corine Ngufor, Geraldine Foster, Ellie Sherrard-Smith **
 
 This GitHub repository provides all code necessary to run the model validation for this paper.
 
