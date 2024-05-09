@@ -3,10 +3,26 @@
 
 This GitHub repository provides all code necessary to run the model validation for this paper.
 
-:one: read_data.R - reads in the trial data and values needed to parameterise the model. 
+:one: read_data.R - reads in the trial data and values needed to parameterise the model.
+
 :two: run_model.R - runs and saves the simulations.
+
 :three: run_model_functions.R helper functions to run the model simulations.
+
 :four: calc_net_top_up.R - estimates the net coverages for all the trial arms.
+
 :five: retention_fit_top_up.R generic Stan model and code to estimate the coverages for a single trial arm.
+
 :six: functions.R - helper functions to estimate the net coverages.
+
 :seven: plot_model.R - generates the plots and extracts the required values from all simulations.
+
+Notes
+
+⚠️ Please note that the simulations are not saved on the Github repository, so will need to be run before attempting to visualise the results.
+
+⚠️ This code is released with no support and we cannot endorse any outputs from the model other than those we generate.
+
+⚠️ This code is under development, so code may change without notice.
+
+⚠️ No liability is accepted by the authors.
