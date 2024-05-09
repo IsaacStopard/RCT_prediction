@@ -248,7 +248,7 @@ get_top_up <- function(net,
     mutate(net = ifelse(type == "Bed_net_use_both",1,2))
   
   # getting the rct data only
-  rct_data <- subset(c_data, type == "Bed_net_use_RCT" & is.na(Time_months) != 1)
+  rct_data <- subset(c_data, type == "Bed_net_use_RCT" & is.na(Time_months) != 1 & Time_months != 30) # excluding the 30 months
   
   
   # calculating the mean bed net use of both nets
@@ -288,10 +288,6 @@ get_top_up <- function(net,
   fit_e_base <- rstan::extract(fit_base)
   
   # extracting the predicted values
-  # plot_df <- data.frame("t" = pred_t,
-  #                     "pred_p" = apply(fit_e$pred_p, 2, quantile, prob = 0.5),
-  #                     "pred_p_l" = apply(fit_e$pred_p, 2, quantile, prob = 0.025),
-  #                     "pred_p_u" = apply(fit_e$pred_p, 2, quantile, prob = 0.975))
   
   plot_df_base <- data.frame("t" = pred_t,
                       "pred_p" = apply(fit_e_base$pred_p, 2, quantile, prob = 0.5),
@@ -304,53 +300,6 @@ get_top_up <- function(net,
   # give everyone pyrethroid nets
   # the day after give the trial nets replacing the pyrethroid net
   # calculate the initial pyrethroid net coverage as being the value that gives the same mean
-  
-  # calculating the coverage of pyrethroid nets
-  
-  # give baseline nets 10 years before
-  
-  
-    # t1_o <- optim(par = 365/2, 
-  #               function(x,
-  #                           m = mean_bed_net_use_both,
-  #                           r = mean(fit_e_base$retention)){
-  # return(abs(m - calc_mean_cov(retention = r,
-  #             base = 1, # here base is the mean net coverage in all people
-  #             min_t = 0,
-  #             max_t = x)))},
-  # lower = 0, upper = 365*2,
-  # method = "Brent")
-  # 
-  # t1 <- round(t1_o$par, digits = 0) # t
-  # 
-  # net_cov_end_init <- gen_cov(retention = mean(fit_e$retention),
-  #                      base = 1,
-  #                      t = t1)$net_cov
-  # 
-  # tu_time <- round(365/2, digits = 0)
-  # 
-  # # top ups every 6 months
-  # 
-  # top_up_times <- seq(t1, max(rct_data$Time_months)*30, tu_time)
-  # 
-  # ### initial coverage required to give the same mean over 6 months
-  # 
-  # mean_base <- calc_base_mean(retention = mean(fit_e_base$retention),
-  #                           mean = mean_bed_net_use_both, # here base is the mean net coverage in all people
-  #                           min_t = 0,
-  #                           max_t = tu_time)
-  # 
-  # net_cov_end <- gen_cov(retention = mean(fit_e$retention),
-  #       base = mean_base,
-  #       t = tu_time)$net_cov
-  # 
-  # top_up_init <- mean_base - net_cov_end_init
-  # top_up <- mean_base - net_cov_end # later top ups
-  # 
-  # top_up_cov <- c(top_up_init, rep(top_up, (length(top_up_times)-1)))
-  
-  #return(list("rct_data" = rct_data, "mean_bed_net_use_both" = mean_bed_net_use_both, "fit" = fit, "fit_base" = fit_base,
-  #            "plot" = plot, "top_up_times" = top_up_times, "top_up_cov" = top_up_cov))
   
   ###
   # initially coverage is 100%

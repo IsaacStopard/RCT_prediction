@@ -42,4 +42,3 @@ decline_r0 <- function(t, rn0, rnm, gamma_n){
   rate = -log(1/2)/gamma_n
   return((rn0 - rnm) * exp(-t * rate) + rnm)
 }
-
